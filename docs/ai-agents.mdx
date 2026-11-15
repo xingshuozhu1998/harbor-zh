@@ -1,0 +1,48 @@
+---
+title: "面向 AI 智能体的 Harbor（智能体评测框架） 文档"
+description: "使用 MCP（模型上下文协议） 将编程智能体连接到 Harbor 文档。"
+---
+
+## Claude Code（Anthropic 编程智能体） {#claude-code}
+
+```bash
+claude mcp add --transport http harbor-docs \
+  https://docs.harborframework.com/mcp
+```
+
+## Codex（OpenAI 编程智能体） {#codex}
+
+```bash
+codex mcp add harbor-docs --url https://docs.harborframework.com/mcp
+```
+
+## Cursor（AI 编程工具） {#cursor}
+
+将以下内容添加到 `~/.cursor/mcp.json`。Cursor CLI（命令行界面） 会读取相同的配置。
+
+```json
+{
+  "mcpServers": {
+    "harbor-docs": {
+      "url": "https://docs.harborframework.com/mcp"
+    }
+  }
+}
+```
+其他智能体请查阅相应文档，了解如何配置 MCP 服务器。
+
+## 单次查询（不推荐） {#one-time-query-not-recommended}
+
+若只需查询一次，可将此 URL 粘贴到编程智能体的对话中，并要求其查询 Harbor 文档。具有网络访问权限的智能体可以通过 MCP 的 JSON-RPC 协议与其通信。
+
+```text
+https://docs.harborframework.com/mcp
+```
+
+若要经常使用，请按上述方式配置 MCP 客户端。
+
+## 提示示例 {#example-prompt}
+
+```text
+Use the Harbor docs to explain how to run an evaluation.
+```

@@ -1,0 +1,164 @@
+---
+title: "预集成智能体"
+description: "运行 Harbor（智能体评测框架） 支持的智能体。"
+---
+
+Harbor（智能体评测框架）集成了多种智能体，因此你无需自行安装依赖。
+
+<Tabs>
+  <Tab title="CLI">
+    ```bash
+    export OPENAI_API_KEY="..."
+    harbor run \
+      -t hello-world/hello-world \
+      -a codex -m openai/gpt-5.6-sol
+    ```
+  </Tab>
+
+  <Tab title="Config">
+    ```json config.json
+    {
+      "agents": [
+        {
+          "name": "codex",
+          "model_name": "openai/gpt-5.6-sol"
+        }
+      ],
+      "tasks": [
+        {
+          "name": "hello-world/hello-world"
+        }
+      ]
+    }
+    ```
+
+    ```bash
+    export OPENAI_API_KEY="..."
+    harbor run --config config.json
+    ```
+  </Tab>
+
+  <Tab title="Python">
+    ```python
+    import asyncio
+
+    from harbor.job import Job
+    from harbor.models.job.config import JobConfig
+    from harbor.models.trial.config import AgentConfig, TaskConfig
+
+
+    async def main():
+        job = await Job.create(
+            JobConfig(
+                agents=[
+                    AgentConfig(
+                        name="codex",
+                        model_name="openai/gpt-5.6-sol",
+                    )
+                ],
+                tasks=[TaskConfig(name="hello-world/hello-world")],
+            )
+        )
+        await job.run()
+
+
+    asyncio.run(main())
+    ```
+  </Tab>
+</Tabs>
+
+使用 `-a` 选择智能体，使用 `-m` 选择模型。运行 `harbor run --help` 查看当前选项。
+
+## 可用智能体 {#available-agents}
+
+<Accordion title="智能体名称" defaultOpen>
+  `aider`, `antigravity-cli`, `antigravity-sdk`, `claude-code`, `cline-cli`,
+  `codex`, `computer-1`, `copilot-cli`, `cortex-code`, `cursor-cli`, `deerflow`,
+  `devin`, `dspy-rlm`, `eve`, `fx`, `gemini-cli`, `goose`, `grok-build`,
+  `hermes`, `junie`, `kimi-code`, `kimi-cli`, `langgraph`, `mcode`,
+  `mimo`, `mini-swe-agent`, `muse-code`, `nemo-agent`, `openclaw`, `opencode`,
+  `openhands`, `openhands-sdk`, `oracle`, `nop`, `pi`, `qwen-coder`,
+  `rovodev-cli`, `strands`, `swe-agent`, `terminus-2`, `trae-agent`, `vibe`, `fabric`, `opencode-v2`
+</Accordion>
+
+你也可以运行 [ACP（智能体客户端协议） 注册表](/agents/acp)中的智能体，或添加[自定义智能体](/agents/custom-agents)。
+
+## 智能体能力 {#agent-capabilities}
+
+能力表示各集成支持的可选功能。
+
+| 能力 | 用途 | 支持的智能体 |
+| --- | --- | --- |
+| [ATIF（智能体轨迹交换格式）](/agents/atif) | 生成 ATIF 轨迹 | `acp`, `antigravity-cli`, `antigravity-sdk`, `claude-code`, `cline-cli`, `codex`, `computer-1`, `copilot-cli`, `cortex-code`, `cursor-cli`, `devin`, `eve`, `gemini-cli`, `goose`, `grok-build`, `hermes`, `junie`, `kimi-cli`, `mimo`, `mini-swe-agent`, `nemo-agent`, `openclaw`, `opencode`, `openhands`, `openhands-sdk`, `qwen-coder`, `rovodev-cli`, `strands`, `swe-agent`, `terminus-2`, `trae-agent`, `vibe`, `pi`, `fx`, `opencode-v2` |
+| [续接](/tasks/multi-step) | 在任务步骤之间继续原生会话 | `aider`, `claude-code`, `codex`, `copilot-cli`, `cortex-code`, `gemini-cli`, `goose`, `junie`, `kimi-code`, `kimi-cli`, `mcode`, `mimo`, `opencode`, `pi`, `qwen-coder`, `opencode-v2` |
+| [加载原生轨迹](/jobs/loading-trajectories#native-trajectories) | 恢复智能体的原生会话 | `claude-code`, `codex` |
+| [加载 ATIF 轨迹](/jobs/loading-trajectories#atif-trajectories-1) | 加载先前的 ATIF 上下文 | `claude-code`, `codex` |
+| [交接](/jobs/handoff) | 在本地继续已完成的会话 | `claude-code` |
+| [原生配置](#native-configuration) | 接受智能体的原生配置格式 | `claude-code`, `codex`, `deerflow`, `junie`, `openhands-sdk`, `qwen-coder` |
+| [Windows（微软操作系统）](/tasks/environment#operating-system) | 在 Windows 任务容器中运行 | `nop`, `oracle` |
+| [ACP 桥接](/jobs/simulate-a-user#bridge) | 在模拟用户 Trial（单次运行） 中充当目标智能体 | `claude-code`, `gemini-cli`, `codex`, `opencode`, `opencode-v2` |
+| [MCP（模型上下文协议） 服务器](/tasks/environment#mcps) | 将任务提供的 MCP 服务器配置传递给智能体运行时或提示词 | `acp`, `antigravity-cli`, `antigravity-sdk`, `claude-code`, `cline-cli`, `codex`, `copilot-cli`, `cursor-cli`, `dspy-rlm`, `eve`, `fx`, `gemini-cli`, `goose`, `grok-build`, `hermes`, `junie`, `kimi-cli`, `kimi-code`, `langgraph`, `mcode`, `mimo`, `mini-swe-agent`, `openclaw`, `opencode`, `openhands`, `openhands-sdk`, `qwen-coder`, `strands`, `terminus-2`, `vibe`, `pi`, `fabric`, `opencode-v2` |
+| [技能](/tasks/skills) | 通过智能体原生配置或提示词发现任务提供的技能 | `antigravity-cli`, `antigravity-sdk`, `claude-code`, `cline-cli`, `codex`, `copilot-cli`, `cursor-cli`, `eve`, `fx`, `gemini-cli`, `goose`, `grok-build`, `hermes`, `junie`, `kimi-cli`, `kimi-code`, `mcode`, `mimo`, `openclaw`, `opencode`, `openhands-sdk`, `pi`, `qwen-coder`, `terminus-2`, `vibe`, `fabric`, `opencode-v2` |
+| [HTTP（超文本传输协议） MCP 请求头](/tasks/environment#mcps) | 转发为 MCP 服务器配置的 HTTP 请求头 | `claude-code`, `codex`, `opencode-v2` |
+| [原生 Web 工具](/tasks/network-policies#built-in-web-tools) | 通过 `disable_web_search` 或受限网络策略禁用内置网页搜索和抓取工具 | `claude-code`, `codex`, `copilot-cli`, `cortex-code`, `deerflow`, `gemini-cli`, `mimo`, `openclaw`, `opencode`, `grok-build`, `opencode-v2` |
+
+Pi 会将当前活动会话分支转换为 ATIF 格式。
+
+支持 MCP 服务器意味着集成会将提供的配置传递给智能体；这不保证能够连接到服务器。
+
+## 智能体选项 {#agent-options}
+
+`--effort`、`--ak` 和 `--ae` 是常用的智能体参数。运行 `harbor run --help` 查看所有参数。
+
+| 参数 | 用途 |
+| --- | --- |
+| `--ak`, `--agent-kwarg` | 向智能体实现传递设置。数字、布尔值、列表和对象等值会解析为对应类型。 |
+| `--ae`, `--agent-env` | 在智能体设置和运行期间设置环境变量。变量值保持为字符串。 |
+| `--effort` | 设置受支持智能体的推理力度。可用级别取决于智能体和模型。 |
+
+<Accordion title="Antigravity CLI 网关推理力度">
+
+对于 `antigravity-cli` 网关运行，`reasoning_effort` 接受 `low`、`medium`、
+`high`、`xhigh` 和 `max`。Harbor 会将所选值原样作为 `--effort` 传递。已安装的 Antigravity 版本和模型目录必须支持该级别；Harbor 接受此选项并不代表模型也支持该级别。省略该选项即可使用模型的默认力度。不接受 `none`。
+
+</Accordion>
+
+<Note>
+  每个智能体都有各自支持的 kwargs 和环境变量。设置前请查看对应的智能体集成说明。
+</Note>
+
+```bash
+harbor run \
+  -t hello-world/hello-world \
+  -a claude-code -m anthropic/claude-sonnet-5 \
+  --ak max_turns=20 \
+  --ae MCP_TIMEOUT=20000
+```
+
+此处，`max_turns=20` 用于配置 Claude Code（Anthropic 编程智能体） 集成，`MCP_TIMEOUT` 则可供智能体进程使用。两个参数都可以**重复指定**。
+
+### 原生配置 {#native-configuration}
+
+加载相应智能体的原生配置文件。示例请参阅 [Claude Code settings.json](https://code.claude.com/docs/en/settings) 和 [Codex（OpenAI 编程智能体） 配置 config.toml](https://learn.chatgpt.com/docs/config-file/config-reference)。`claude-code`、`codex`、`deerflow`、`junie`、`openhands-sdk` 和 `qwen-coder` 均接受原生配置文件：
+
+```bash
+# Config file
+harbor run ... -a codex --ak "config=path/to/config.toml"
+```
+也支持内联 JSON（结构化数据格式）。Harbor 会将内联 JSON 转换为智能体的原生配置文件格式，再传递给智能体：
+```bash
+# Inline config
+harbor run ... -a codex --ak 'config={"model_context_window": 200000}'
+```
+
+### 预安装的智能体 {#pre-installed-agents}
+
+如果任务镜像已包含智能体（例如沙箱无法访问互联网），可以使用 `skip_install` 跳过安装：
+
+```bash
+harbor run ... -a opencode --ak skip_install=true
+```
+
+之后 Harbor 会假定镜像提供了智能体及其运行所需的全部内容，包括系统软件包。上传 Harbor 运行脚本或写入智能体配置等运行前置步骤仍会执行。记录的智能体版本取自镜像。所有已安装智能体都支持此选项。镜像必须使用该集成预期的路径和运行时；可使用 `--install-only` 准备镜像。
+
+如果镜像中安装的版本与请求的 `version` 一致，或者未指定版本，`claude-code`、`codex`、`opencode` 和 `opencode-v2` 会复用镜像中的版本。否则会安装请求的版本；未指定时安装最新版本。
