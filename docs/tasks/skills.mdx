@@ -1,0 +1,54 @@
+---
+title: "技能"
+description: "将可复用的智能体指令随任务打包。"
+---
+
+Task（任务）可以在其环境中包含技能，以便运行此任务的每个智能体都能获得相同的指令和参考文件。每项技能都是一个包含 `SKILL.md` 文件的目录。
+
+## 将技能添加到任务 {#add-skills-to-a-task}
+
+将技能放入环境构建上下文：
+
+```bash
+my-task/
+├── task.toml
+└── environment/
+    ├── Dockerfile
+    └── skills/
+        └── <skill-name>/
+            ├── SKILL.md
+            └── ...
+```
+
+将它们复制到镜像中：
+
+```dockerfile title="environment/Dockerfile"
+FROM <base-image>
+
+COPY skills/ /skills/
+```
+
+然后将 `environment.skills_dir` 指向该沙箱目录：
+
+```toml title="task.toml"
+[environment]
+skills_dir = "/skills"
+```
+
+请使用绝对沙箱路径。将任务技能与作业运行时提供的技能组合使用时，必须采用绝对路径。
+
+## Harbor（智能体评测框架） 如何传递任务技能 {#how-harbor-passes-task-skills}
+
+Harbor（智能体评测框架）不会单独上传任务技能文件：它们已存在于构建或预构建环境的 `environment.skills_dir` 路径中。创建智能体之前，Harbor 会将该路径作为 `skills_dir` 传给智能体集成。
+
+兼容的预集成智能体会将技能复制或注册到其原生配置目录。自定义智能体会在构造时收到 `skills_dir`，并应在 `setup()` 或 `run()` 期间使用该路径。沙箱中也会保留此路径。
+
+<Note>
+  设置 `environment.skills_dir` 不会将文件复制到环境中。请确认该目录已存在于构建或预构建的镜像内。
+</Note>
+
+## 组合任务技能与作业技能 {#combine-task-and-job-skills}
+
+[作业提供的技能](/jobs/skills)会上传到任务的 `environment.skills_dir`，因此智能体会从同一目录获取这两类技能。对于该 Trial（单次运行），作业提供的技能会替换目录名称相同的打包技能。
+
+如果任务未声明 `environment.skills_dir`，作业提供的技能会使用 `/runtime/skills`。

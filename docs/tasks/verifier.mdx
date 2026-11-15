@@ -1,0 +1,108 @@
+---
+title: "验证器"
+description: "任务验证。"
+---
+
+`tests/test.sh` 是验证器的入口脚本。智能体运行后，Harbor（智能体评测框架） 会将 `tests/` 上传到 `/tests/`，除非[专用验证器镜像或构建定义](#separate-verifier-environment)已提供测试。`tests/test.sh` 会在任务工作目录中执行，负责验证任务是否完成，并且必须在 `/logs/verifier/reward.txt` 或 `/logs/verifier/reward.json` 中生成数值奖励。
+
+## 必需脚本 {#required-script}
+
+| 操作系统 | 文件             |
+| ------- | ---------------- |
+| Linux（操作系统内核及相关系统）   | `tests/test.sh`  |
+| Windows（微软操作系统） | `tests/test.bat` |
+
+在 `tests/Dockerfile`（共享验证时则在智能体镜像）中安装测试依赖。脚本应：
+
+1. 验证智能体是否满足[任务指令](/tasks/instruction)
+2. 在 `/logs/verifier/` 下写入**奖励值**
+
+建议在脚本中使用**绝对路径**，以避免工作目录 `cwd` 带来的问题。
+
+## 奖励文件 {#reward-files}
+
+| File                         | 格式                                           |
+| ---------------------------- | ------------------------------------------------ |
+| `/logs/verifier/reward.json` | 包含带标签数值指标的 JSON（结构化数据格式） 键值对象 |
+| `/logs/verifier/reward.txt`  | 单个数字，通常为 `1` 或 `0`                |
+
+如果两个文件都存在，Harbor 会优先使用 `reward.json`。
+
+### 示例 {#example}
+
+```bash title="tests/test.sh"
+#!/bin/bash
+set -euo pipefail
+
+if pytest /tests/test_outputs.py; then
+  echo 1 > /logs/verifier/reward.txt
+else
+  echo 0 > /logs/verifier/reward.txt
+fi
+```
+
+对于多指标或基于 LLM 的评分，可以使用 [RewardKit（奖励验证工具库）](/rewardkit/quick-start)，或编写结构化的 `reward.json` 文件。
+
+## 独立验证器环境 {#separate-verifier-environment}
+
+使用 `harbor task init` 或 `harbor init --task` 创建的任务会配置独立沙箱进行验证。若同时省略 `verifier.environment_mode` 和 `[verifier.environment]`，则使用共享验证。
+
+若要使用共享验证，请在 `task.toml` 的 `[verifier]` 下设置 `environment_mode = "shared"`，省略 `[verifier.environment]`，并将验证器依赖安装在智能体镜像中。
+
+Harbor 优先使用 `[verifier.environment].docker_image`，其次使用 `tests/` 中的构建定义（`Dockerfile` 或 `docker-compose.yaml`），而不是智能体环境。专用验证器镜像必须包含 `/tests/test.sh` 或 `/tests/test.bat`；Harbor 不会在运行时向其中上传测试。
+
+如果没有专用验证器镜像或构建定义，Harbor 会启动一份全新的智能体环境副本，并将 `tests/` 上传到 `/tests/`。不会继承智能体对文件系统所做的更改。对于多步骤任务，步骤级验证器定义优先于任务级定义。
+
+请在 `task.toml` 的顶层 `artifacts` 列表中（所有节标题之前）声明[产物](/tasks/artifacts)。Harbor 会在验证前收集这些产物，并将其复制到独立验证器沙箱中的原始源路径。
+
+详情请参见[独立验证器](/tasks/separate-verifier)。
+
+### 示例 {#example-1}
+
+```toml title="task.toml"
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+cpus = 2
+```
+
+```dockerfile title="tests/Dockerfile"
+FROM python:3.12-slim
+
+COPY --from=ghcr.io/astral-sh/uv:0.9.7 /uv /usr/local/bin/uv
+
+RUN uv pip install --system pytest==8.4.1 pytest-json-ctrf==0.3.5
+
+WORKDIR /app
+
+COPY . /tests/
+```
+
+## 重新评分 {#regrading}
+
+如果任务使用独立验证器环境，Harbor 可以为现有 Trial（单次运行） 重新运行验证器。修改和迭代验证器时，这项功能非常有用。
+
+详情请参见[重新评分](/jobs/regrade)。
+
+## 向验证器传递环境变量 {#passing-environment-variables-to-the-verifier}
+
+可以在 `task.toml` 的 `[verifier.env]` 节中设置要传递给验证器的环境变量。
+
+```toml title="task.toml"
+[verifier.env]
+ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"
+MODEL_NAME = "claude-haiku-4-5"
+```
+
+`${VAR}` 语法用于从主机环境读取变量。将环境变量传给验证器之前，Harbor 会要求用户确认。
+
+## 使用 LLM 或智能体作为评审 {#llm-or-agent-as-a-judge}
+
+任务作者可以自行实现 `test.sh`，采用所需的验证方式，包括使用 LLM 或智能体作为评审。
+
+为避免编写重复样板代码，可以使用 [RewardKit](/rewardkit/quick-start) 定义评审器或程序化标准。
+
+## `rewardkit` {#rewardkit}
+
+Harbor 团队维护了一个名为 [`harbor-rewardkit`](/rewardkit/quick-start) 的软件包。它可以方便地定义和运行常见验证器，包括程序化标准以及基于 LLM 或智能体的评审。

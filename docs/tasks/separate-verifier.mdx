@@ -1,0 +1,153 @@
+---
+title: "独立验证器"
+description: "在独立环境中运行验证。"
+---
+
+<Note>
+  使用 `harbor task init` 或 `harbor init --task` 创建的任务会配置独立验证。若同时省略 `verifier.environment_mode` 和 `[verifier.environment]`，则使用共享验证。
+</Note>
+
+在独立容器中运行验证器适用于隔离评分。这可以加强智能体与验证器之间的安全边界，也允许你预先在验证器镜像中安装依赖并提前构建镜像，从而减少安装失败并加快验证器阶段的运行速度。此外，独立验证器还支持[重新评定 Trial（单次运行）](/jobs/regrade)。
+
+智能体输出通过[产物](#artifact-transfer)传递。
+
+如需使用共享验证，请在 `[verifier]` 下设置 `environment_mode = "shared"`，省略 `[verifier.environment]`，并在智能体镜像中安装验证器依赖。
+
+## 配置 {#configuration}
+
+有两种方式可以配置独立验证器环境：
+
+1. 在 `task.toml` 的 `[verifier]` 下设置 `environment_mode = "separate"`。
+2. 在 `task.toml` 中添加 `[verifier.environment]`。
+
+### 选项 1：复用智能体的环境配置 {#option-1%3A-reuse-the-agents-environment-configuration}
+
+在 `[verifier]` 下设置 `environment_mode = "separate"`：
+
+```toml
+[environment]
+docker_image = "some/image:latest"
+cpus = 2
+memory_mb = 1024
+
+[verifier]
+environment_mode = "separate"
+```
+
+如果没有专用的验证器镜像或构建定义，Harbor（智能体评测框架） 会启动一份全新的智能体环境副本，并将 `tests/` 上传到 `/tests/`。智能体对文件系统所做的更改不会被继承。
+
+### 选项 2：使用专用的验证器环境 {#option-2%3A-use-a-verifier-specific-environment}
+
+添加 `[verifier.environment]`，即可使用其他镜像或资源配置。此操作会隐式启用独立模式：
+
+```toml
+[verifier.environment]
+docker_image = "my-org/grading-image:latest"
+cpus = 2
+memory_mb = 1024
+```
+
+此配置与 `[environment]` 使用相同架构，包括[网络策略](/tasks/network-policies)。它不能与 `environment_mode = "shared"` 同时使用。
+
+### 模式判定 {#mode-resolution}
+
+对于同时省略 `verifier.environment_mode` 和 `verifier.environment` 的现有任务，仍会使用共享验证。
+
+| `environment_mode` | `[verifier.environment]` | 结果 |
+| ------------------ | ------------------------ | ------------------------------------------------ |
+| omitted            | omitted                  | `"shared"`                                       |
+| omitted            | present                  | `"separate"`                                     |
+| `"shared"`         | omitted                  | `"shared"`                                       |
+| `"shared"`         | present                  | **validation error**                             |
+| `"separate"`       | omitted                  | `"separate"` (copy of top-level `[environment]`) |
+| `"separate"`       | present                  | `"separate"` (verifier-specific env)             |
+
+## 镜像选择 {#image-selection}
+
+Harbor 会选择第一个可用的定义：
+
+| 优先级 | 定义 | 测试文件 |
+| --- | --- | --- |
+| 1 | `[verifier.environment].docker_image` | 必须预先打包进镜像。 |
+| 2 | `tests/Dockerfile`（或 `tests/docker-compose.yaml`） | 必须预先打包进镜像。 |
+| 3 | `[environment].docker_image` | 从 `tests/` 上传到 `/tests/`。 |
+| 4 | `environment/Dockerfile`（或 `environment/docker-compose.yaml`） | 从 `tests/` 上传到 `/tests/`。 |
+
+如果提供了 `[verifier.environment]`，资源设置将取自该部分；否则取自 `[environment]`。继承的智能体镜像不会覆盖验证器构建定义。
+
+### 专用验证器镜像 {#dedicated-verifier-image}
+
+新任务应包含 `tests/Dockerfile`，用于安装依赖并打包测试（多步骤任务的每个步骤各自提供一个）。`test.sh` 应只负责运行测试并写入奖励。
+
+如需复用智能体环境定义，请删除验证器 Dockerfile，并将验证器依赖安装到智能体镜像中。
+
+专用验证器镜像必须提供 `/tests/test.sh`（Windows（微软操作系统） 上为 `/tests/test.bat`）。Harbor 不会在运行时将测试文件上传到这些镜像。
+
+```bash
+my-task/
+├── task.toml
+├── instruction.md
+├── environment/
+│   └── Dockerfile        # agent environment
+└── tests/
+    ├── Dockerfile        # verifier image
+    ├── test.sh
+    └── grader.py
+```
+
+例如，`tests/Dockerfile` 可以打包评分文件：
+
+```dockerfile
+FROM ubuntu:24.04
+
+WORKDIR /app
+
+COPY . /tests/
+```
+
+使用 `.dockerignore` 配置构建时的排除规则；[`.harborignore`](/tasks/overview#local-development-files) 则过滤上传和发布的文件。
+
+## 产物传输 {#artifact-transfer}
+
+运行独立验证器时，Harbor 会将以下内容复制到验证器环境：
+
+* `/logs/artifacts/`（智能体发布目录）
+* Task（任务）、Trial 和步骤级别 `artifacts` 字段中列出的路径
+
+产物会上传到验证器环境中原来的 `source` 路径，而不是主机上的 `destination` 路径。例如，`{ source = "/app/report.json", destination = "report.json" }` 会在验证器中还原到 `/app/report.json`；`destination` 只决定文件在主机上的保存位置。请参阅[产物](/tasks/artifacts)。
+
+除非声明为产物，否则不会复制 `/logs/agent/` 和 `/logs/verifier/`，例如轨迹评分：
+
+```toml
+artifacts = ["/logs/agent/trajectory.json"]
+```
+
+### 清理产物 {#sanitize-artifacts}
+
+如果产物未经处理直接上传，智能体可能会欺骗验证器：
+
+* **Setuid 二进制文件：**智能体提供一个 setuid 程序。该程序以 root 身份上传，验证器执行时也会以 root 身份运行，并将自己的 `/logs/verifier/reward.json` 写入结果。
+* **符号链接：**智能体将 `/app/output.png` 链接到 `/tests/solution.png`，导致验证器实际上在将参考解决方案与自身比较。
+
+Harbor 会阻止这两种情况。在所有环境中，产物都按相同流程处理：Harbor 将其打包为 tar 归档文件，使用 Python（编程语言） 的 [`data` 过滤器](https://docs.python.org/3/library/tarfile.html#tarfile.data_filter)解压，然后上传结果。过滤器会清除 setuid/setgid 位、跳过特殊文件和指向产物之外的符号链接，并规范化权限。被跳过的条目会作为警告记录。产物内容仍应视为不可信输入。
+
+## 多步骤任务 {#multi-step-tasks}
+
+每个步骤都可以在 `[steps.verifier]` 下覆盖验证器模式。支持在不同步骤中混用共享和独立模式：
+
+```toml
+[[steps]]
+name = "build"
+# Inherits task-level mode; shared in this example because it is omitted.
+
+[[steps]]
+name = "grade"
+[steps.verifier.environment]
+docker_image = "my-org/grading-image:latest"
+```
+
+判定顺序：若设置了 `[steps.verifier].environment_mode`，则使用该值；否则，如果存在 `[steps.verifier.environment]`，则使用 `"separate"`；否则采用 Trial 级别设置。网络规则请参阅[网络策略](/tasks/network-policies)。
+
+镜像优先级依次为：步骤镜像、步骤测试构建定义、任务验证器镜像、任务测试构建定义，最后是智能体环境。步骤的 `tests/` 目录若没有构建定义，则不会覆盖任务验证器镜像。回退到智能体环境时，Harbor 会先上传基础测试，再叠加步骤测试。
+
+测试会根据每个步骤**实际使用的**验证器操作系统进行校验。因此，只要提供了对应的 `test.sh` 或 `test.bat`，就可以在 Windows 上评测 Linux（操作系统内核及相关系统） 智能体，反之亦然。

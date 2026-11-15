@@ -1,0 +1,46 @@
+---
+title: "解决方案"
+description: "任务解决方案。"
+---
+
+**`solution/`** 文件夹为**可选项**。其中保存供 oracle 智能体使用的参考脚本，以检查任务是否可解。调试任务或沙箱集成时，解决方案通常也很有帮助。
+
+## 必需脚本 {#required-script}
+
+| OS      | File                 |
+| ------- | -------------------- |
+| Linux（操作系统内核及相关系统）   | `solution/solve.sh`  |
+| Windows（微软操作系统） | `solution/solve.bat` |
+
+Harbor（智能体评测框架）根据 [task.toml](/tasks/configuration) 中的 `[environment].os` 选择文件扩展名。
+
+可以添加其他文件（脚本、数据）。运行时，Harbor 会将整个文件夹复制到 `/solution`，并在任务工作目录中运行解决脚本。
+
+## 何时添加解决方案 {#when-to-include-a-solution}
+
+* **建议**在编写任务时添加：使用 Oracle 智能体运行 `harbor run`，确认任务可以解决。
+* 对于已发布的基准测试，解决方案为**可选项**：如果不希望公开参考实现，可以省略。
+
+如果没有 `solution/`，Oracle 智能体将无法运行。
+
+## 配置 {#configuration}
+
+```toml title="task.toml"
+[solution]
+env = { API_KEY = "sk-test-123" }
+```
+
+Oracle 执行 `solve.sh` 时会应用这些变量。
+
+## 多个解决方案 {#multiple-solutions}
+
+使用 `--ae` 传入环境变量，然后在 `solution/solve.sh` 中选择具体实现。**变量名称由你决定，选择逻辑也由你编写在 `solve.sh` 中，因此可以支持任意数量的解决方案。**脚本可以调用 `solve2.sh`、`solution2/solve.sh`、Python（编程语言） 脚本或其他实现。Harbor 会复制整个 `solution/` 目录，因此各实现可以共用辅助文件，也可以使用各自的支持文件。
+
+[hello-world-multiple-solutions 示例](https://github.com/harbor-framework/harbor/tree/main/examples/tasks/hello-world-multiple-solutions)使用 `SOLUTION` 选择第二个正确的解决方案。在仓库根目录运行：
+
+```bash
+uv run harbor run -p examples/tasks/hello-world-multiple-solutions -a oracle \
+  --ae SOLUTION=2
+```
+
+省略 `--ae` 可运行原始解决方案。两种方案都应获得奖励 `1`。`SOLUTION` 只是此示例使用的变量，并非 Harbor 特殊变量。请勿在 `[solution.env]` 中设置同名变量，因为它的优先级高于 `--ae`。
