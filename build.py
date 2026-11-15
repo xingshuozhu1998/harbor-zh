@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """导出 Mintlify 原版页面，并适配 GitHub Pages 的 /harbor-zh/ 路径。"""
 import json
+import html
 import os
 import re
 import shutil
@@ -85,7 +86,7 @@ document.addEventListener('click',event=>{
     for p in SITE.rglob('*'):
         if p.suffix not in ('.html', '.js', '.css'):
             continue
-        content = p.read_text()
+        content = p.read_text().replace('/favicons/favicon.ico', BASE + '/harbor-logo.png')
         if p.suffix == '.html':
             content = re.sub(r'\b(href|src|poster|action)="/(?!/|harbor-zh/)',
                              lambda m: m[1] + '="' + BASE + '/', content)
@@ -116,6 +117,23 @@ document.addEventListener('click',event=>{
         out.write_text(p.read_text())
         entries.append(f'- [{rel.with_suffix("")}]({BASE}/{rel})')
     (SITE / 'llms.txt').write_text('# Harbor 中文文档\n\n' + '\n'.join(entries) + '\n')
+    # API 参考页由 OpenAPI 自动生成，没有手写 MDX；补齐它们的 Markdown 下载。
+    spec_path = DOCS / 'api-sdk/openapi.json'
+    spec = json.loads(spec_path.read_text())
+    generated = Path.home() / '.mintlify/previews/harbor-zh-export/mint/apps/client/src/_props/api-sdk'
+    for p in generated.rglob('*.mdx'):
+        match = re.search(r'^openapi: /api-sdk/openapi.json (\w+) (.+)$', p.read_text(), re.M)
+        if not match:
+            continue
+        method, route = match.groups()
+        operation = spec['paths'][route][method.lower()]
+        dest = SITE / 'api-sdk' / p.relative_to(generated).with_suffix('.md')
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(f'# {method.upper()} {route}\n\n' + operation.get('description', '') + '\n\n```json\n' + json.dumps(operation, ensure_ascii=False, indent=2) + '\n```\n\n[完整 OpenAPI 定义](/harbor-zh/api-sdk/openapi.json)\n')
+    shutil.copy2(spec_path, SITE / 'api-sdk/openapi.json')
+    (SITE / 'llms-full.txt').write_text('\n\n'.join(p.read_text() for p in sorted(DOCS.rglob('*.mdx'))))
+    urls = ['https://xingshuozhu1998.github.io/harbor-zh/' + p.parent.relative_to(SITE).as_posix().removeprefix('.').strip('/') for p in SITE.rglob('index.html') if '_mintlify' not in p.parts]
+    (SITE / 'sitemap.xml').write_text('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + ''.join('<url><loc>' + html.escape(url) + '</loc></url>' for url in sorted(set(urls))) + '</urlset>')
     (SITE / '.nojekyll').touch()
     for name in ['serve.js', 'Start Docs.command', 'Start Docs.bat']:
         (SITE / name).unlink(missing_ok=True)

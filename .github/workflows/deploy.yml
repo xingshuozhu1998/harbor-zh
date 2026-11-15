@@ -1,0 +1,41 @@
+name: 构建并发布 Harbor 中文文档
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: harbor-zh-pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+          cache: npm
+      - name: 安装固定版本的预览与导出工具
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+        run: npm ci --no-audit --no-fund
+      - name: 获取原版资源并生成子路径静态站点
+        run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .build/site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - name: 发布中文文档
+        id: deployment
+        uses: actions/deploy-pages@v4
