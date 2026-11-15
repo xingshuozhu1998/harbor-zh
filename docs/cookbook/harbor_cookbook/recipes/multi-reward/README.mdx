@@ -1,0 +1,40 @@
+---
+title: "multi-reward"
+sidebarTitle: "multi-reward"
+---
+
+此示例展示多个验证器如何将独立奖励写入 `reward.json`，而不是只写入一个二元值 `reward.txt`。智能体的解决方案会分别按**正确性**和**性能**评分。
+
+## 目录结构
+
+```
+multi-reward/
+├── README.md
+├── task.toml              # Timeouts and resource limits
+├── instruction.md         # What the agent should do
+├── config.yaml            # Job config with per-dimension metrics
+├── environment/
+│   └── Dockerfile         # Agent container (ubuntu:24.04 + Python 3)
+├── tests/
+│   ├── test.sh            # Runs both test suites, writes reward.json
+│   ├── test_correctness.py
+│   └── test_performance.py
+├── metrics/
+│   └── per_dimension.py   # Custom metric: mean reward per dimension
+└── solution/
+    └── solve.sh           # Reference solution
+```
+
+## 运行
+
+此示例会将两个奖励维度（`correctness`、`performance`）写入 `reward.json`。Harbor（智能体评测框架） 默认的 `mean` 指标只支持单键奖励，因此必须传入附带的 `config.yaml`，其中使用自定义的逐维度指标：
+
+```bash
+harbor run -p harbor_cookbook/recipes/multi-reward -c harbor_cookbook/recipes/multi-reward/config.yaml
+```
+
+若要在不计算指标的情况下运行单个 Trial（适用于快速迭代）：
+
+```bash
+harbor trials start -p harbor_cookbook/recipes/multi-reward
+```

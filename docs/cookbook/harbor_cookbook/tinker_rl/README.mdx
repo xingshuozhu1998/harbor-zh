@@ -1,0 +1,32 @@
+---
+title: "tinker_rl"
+sidebarTitle: "tinker_rl"
+---
+
+使用 [Tinker（模型训练服务） SDK（软件开发工具包）](https://github.com/thinking-machines-lab/tinker-cookbook) 对 Harbor（智能体评测框架） 任务进行 RL（强化学习） 训练。
+
+此目录仅作索引。完整示例位于 tinker-cookbook 仓库中：
+
+**[tinker-cookbook/harbor_rl](https://github.com/thinking-machines-lab/tinker-cookbook/tree/main/tinker_cookbook/recipes/harbor_rl)**
+
+## 快速开始
+
+下载 Harbor 任务（例如 Terminal-Bench（终端智能体评测基准） 2.0）：
+
+```bash
+harbor datasets download terminal-bench@2.0
+```
+
+启动训练：
+
+```bash
+python -m tinker_cookbook.recipes.harbor_rl.launch_terminal_bench \
+    model_name="moonshotai/Kimi-K2-Thinking" \
+    group_size=4 \
+    groups_per_batch=8 \
+    learning_rate=1e-5 \
+    lora_rank=32 \
+    max_tokens=8192
+```
+
+设置说明请参见 [tinker-cookbook README](https://github.com/thinking-machines-lab/tinker-cookbook)。

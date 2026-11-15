@@ -1,0 +1,22 @@
+---
+title: "GEPA（基于反馈的演化优化方法） + Harbor（智能体评测框架）：在 MedAgentBench（医疗智能体评测基准） 上优化智能体"
+sidebarTitle: "GEPA + Harbor：在 MedAgentBench 上优化智能体"
+---
+
+此示例使用 [GEPA](https://github.com/laude-institute/gepa) 的 `optimize_anything` API（应用程序接口），通过 [Harbor](https://github.com/harbor-framework/harbor) 为 [MedAgentBench](https://github.com/stanfordmlgroup/MedAgentBench) 优化智能体。
+
+## 前置条件
+
+Docker（容器平台） 正在运行，并且已设置 `OPENAI_API_KEY`（供 Codex（OpenAI 编程智能体） 智能体和 GEPA 的反思 LLM 使用）。
+
+## 快速开始
+
+```bash
+uv run harbor_cookbook/gepa/optimize.py
+```
+
+运行 `--help` 查看可用选项（智能体、模型、环境、工作进程数、迭代预算等）。
+
+## 结果
+
+预计 GEPA 可以在几轮迭代内将准确率提升至约两倍。例如，在包含 32 项任务的验证集上，使用 codex/gpt-5-nano 运行 3 轮优化后，准确率可能从约 28% 提升到约 50%。

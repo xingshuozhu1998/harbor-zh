@@ -1,0 +1,28 @@
+---
+title: "simple-task"
+sidebarTitle: "simple-task"
+---
+
+最简 Harbor（智能体评测框架） 任务示例，展示基本目录结构：Dockerfile、指令、测试和解决方案。
+
+## 目录结构
+
+```
+simple-task/
+├── README.md
+├── task.toml              # Timeouts and resource limits
+├── instruction.md         # What the agent should do
+├── environment/
+│   └── Dockerfile         # Agent container (ubuntu:24.04)
+├── tests/
+│   ├── test.sh            # Installs pytest, runs tests, writes reward
+│   └── test_state.py      # Pytest assertions
+└── solution/
+    └── solve.sh           # Reference solution
+```
+
+## 运行
+
+```bash
+harbor run -p harbor_cookbook/recipes/simple-task --agent claude-code --model anthropic/claude-sonnet-4-6
+```

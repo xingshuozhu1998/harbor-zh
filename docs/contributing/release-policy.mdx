@@ -1,0 +1,33 @@
+---
+title: "发布策略"
+description: "Harbor（智能体评测框架）的稳定版与 nightly 版本发布策略。"
+---
+
+Harbor（智能体评测框架）按需发布稳定版（通常每两周一次），并每日发布 nightly 版本。
+
+## 稳定版 {#stable-releases}
+
+维护者准备就绪后会将稳定版发布到 [PyPI（Python 软件包索引）](https://pypi.org/project/harbor/)，并更新 [Changelog](/changelog)（变更日志）。
+
+- **补丁版本：**用于修复问题和渐进式改进，例如从 `0.22.0` 升级到 `0.22.1`。
+- **次版本：**用于发布**主要功能**或引入**不兼容变更**，例如从 `0.22.x` 升级到 `0.23.0`。
+
+使用以下命令安装最新稳定版：
+
+```bash
+uv tool install harbor
+```
+
+## Nightly 版本 {#nightly-releases}
+
+Nightly 构建每天将最新的 `main` 发布到 PyPI。版本格式为 `<next-patch>.dev<timestamp>`，例如 [`0.22.1.dev202608271032`](https://pypi.org/project/harbor/0.22.1.dev202608271032/)。如需查看所有稳定版和 nightly 版本，请参阅 [PyPI 发布历史](https://pypi.org/project/harbor/#history)。
+
+使用以下命令安装最新 nightly 构建：
+
+```bash
+uv tool install --prerelease explicit "harbor>=0.dev0"
+```
+
+<Note>
+  Nightly 构建可让你提前使用尚未发布的变更，但稳定性可能较低。
+</Note>

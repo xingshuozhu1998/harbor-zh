@@ -1,0 +1,98 @@
+---
+title: "注册表"
+description: "创建自定义数据集注册表。"
+---
+
+Harbor（智能体评测框架） 支持通过 `--registry-url` 或 `--registry-path` 从自定义注册表运行和下载数据集。
+
+<Note>
+    本文介绍如何创建自定义注册表。Harbor 默认使用 Harbor Hub（Harbor 的数据集注册与分发服务）作为注册表。
+</Note>
+
+## 结构定义 {#schema}
+
+`registry.json` is a JSON（结构化数据格式） array. 每个条目定义数据集的一个版本，必须包含 `name`、`version`、`description` 和 `tasks`。`metrics` 字段为可选项。
+
+```json title="registry.json"
+[
+  {
+    "name": "<dataset>",
+    "version": "<version>",
+    "description": "<description>",
+    "tasks": [
+      {
+        "name": "<task>",
+        "git_url": "https://github.com/<org>/<repo>.git",
+        "git_commit_id": "<commit-sha>",
+        "path": "<path/to/task>"
+      }
+    ],
+    "metrics": [
+      {
+        "type": "mean",
+        "kwargs": {}
+      }
+    ]
+  }
+]
+```
+
+### 数据集字段 {#dataset-fields}
+
+<ParamField body="name" type="string">
+  与 `--dataset` 一起使用的数据集名称。
+</ParamField>
+
+<ParamField body="version" type="string">
+  数据集版本。要发布同一数据集的另一个版本，请再定义一个顶层条目。
+</ParamField>
+
+<ParamField body="description" type="string">
+  便于阅读的数据集描述。
+</ParamField>
+
+<ParamField body="tasks" type="list[Task]">
+  数据集中包含的任务。
+</ParamField>
+
+<ParamField body="metrics" type="list[Metric]" default="[]">
+  可选的奖励聚合指标。请参见 [Metrics](/datasets/metrics)。
+</ParamField>
+
+### 任务字段 {#task-fields}
+
+每个任务都必须包含 `name` 和 `path`。Git（版本控制工具） 相关字段为可选项。
+
+<ParamField body="tasks[].name" type="string">
+  任务名称。
+</ParamField>
+
+<ParamField body="tasks[].git_url" type="string | null" default="null">
+  包含该任务的 Git 仓库。未使用 `--repo` 时，省略此字段表示 `path` 是本地路径。
+</ParamField>
+
+<ParamField body="tasks[].git_commit_id" type="string | null" default="null">
+  包含该任务的提交。如果省略，Harbor 会解析仓库的默认分支。
+</ParamField>
+
+<ParamField body="tasks[].path" type="string">
+  任务目录的路径；设置 `git_url` 时，该路径相对于 Git 仓库根目录。
+</ParamField>
+
+### 指标字段 {#metric-fields}
+
+<ParamField body="metrics[].type" type={'"sum" | "min" | "max" | "mean" | "uv-script"'} default={'"mean"'}>
+  用于聚合任务奖励的指标实现。
+</ParamField>
+
+<ParamField body="metrics[].kwargs" type="object" default="{}">
+  传递给指标实现的关键字参数。
+</ParamField>
+
+<Note>
+  使用 [`--repo`](/datasets/git-repos) 加载注册表时，Harbor 会根据所选仓库和解析出的提交补全省略的 `git_url` 与 `git_commit_id`。
+</Note>
+
+<Tip>
+  请使用唯一的数据集名称与版本组合，并将远程任务固定到完整的提交 SHA，以确保运行结果可复现。
+</Tip>

@@ -1,0 +1,125 @@
+---
+title: "Git（版本控制工具） 仓库"
+description: "从 Git 仓库运行数据集。"
+---
+
+Harbor（智能体评测框架） 可以通过 `--repo` 标志直接从 Git 仓库解析数据集，因此你可以运行托管在 GitHub（代码托管平台）、GitLab 或 Hugging Face 仓库中的基准测试。
+
+## 快速开始 {#quick-start}
+
+```bash
+harbor run --repo "<org/repo-name>" -a "<agent>" -m "<model>"
+```
+
+该命令会克隆仓库，并默认运行 `tasks/` 目录中的任务。
+
+## 指定仓库 {#specifying-the-repository}
+
+`--repo` 标志接受以下几种格式：
+
+```bash
+# GitHub shorthand (defaults to github.com)
+--repo "<org/repo-name>"
+
+# Pinned to a branch, tag, or commit
+--repo "<org/repo-name>@<tag>"
+--repo "<org/repo-name>@<branch>"
+--repo "<org/repo-name>@<commit>"
+
+# Full URL
+--repo "https://github.com/<org/repo-name>"
+
+# Subdirectory via /tree/ path
+--repo "https://github.com/<org/repo-name>/tree/<ref>/<subdirectory>"
+
+# Hugging Face
+--repo "https://huggingface.co/datasets/<org/repo-name>"
+
+# GitLab
+--repo "https://gitlab.com/<org/repo-name>"
+```
+
+未指定 `@ref` 时，将使用仓库的默认分支。
+
+## 选择数据集 {#selecting-a-dataset}
+
+你可以使用 `-p` 指定仓库内的路径来选择数据集，也可以使用 `-d` 选择根目录 `registry.json` 文件（或 `--registry-path` 指定文件）中定义的数据集。
+
+<Tabs>
+  <Tab title="Repo-relative path">
+    从相对于仓库根目录的目录运行隐式数据集：
+
+    ```bash
+    harbor run --repo "<org/repo-name>" -p "<path/to/tasks>" \
+      -a "<agent>" -m "<model>"
+    ```
+  </Tab>
+
+  <Tab title="Default registry path">
+    从仓库根目录的 `registry.json` 中选择数据集：
+
+    ```bash
+    harbor run --repo "<org/repo-name>" -d "<dataset>" \
+      -a "<agent>" -m "<model>"
+
+    harbor run --repo "<org/repo-name>" -d "<dataset>@<version>" \
+      -a "<agent>" -m "<model>"
+    ```
+  </Tab>
+
+  <Tab title="Custom registry path">
+    从相对于仓库根目录的注册表路径中选择数据集：
+
+    ```bash
+    harbor run --repo "<org/repo-name>" \
+      --registry-path "<path/to/registry.json>" \
+      -d "<dataset>" -a "<agent>" -m "<model>"
+    ```
+  </Tab>
+</Tabs>
+
+未指定 `-p` 或 `-d` 时，Harbor 会将仓库的 `tasks/` 目录视为隐式数据集。
+
+## 与其他标志组合使用 {#combining-with-other-flags}
+
+标准数据集标志可以与 `--repo` 一起使用：
+
+```bash
+# Include specific tasks
+harbor run --repo "<org/repo-name>" -d "<dataset>" \
+  -i "<task-a>" -i "<task-b>" \
+  -a "<agent>" -m "<model>"
+
+# Limit task count
+harbor run --repo "<org/repo-name>" -d "<dataset>" \
+  -l "<count>" \
+  -a "<agent>" -m "<model>"
+```
+
+<Warning type="warn" title="互斥选项">
+  `--repo` 不能与 `--registry-url` 或 `--task` / `--task-git-url` 同时使用。
+</Warning>
+
+## 仓库结构 {#repository-layout}
+
+与 `--repo` 一起使用的 Git 仓库应在根目录（或指定的子目录）中包含 `registry.json`。该文件格式与本地 `--registry-path` 使用的格式相同：
+
+```bash
+my-repo/
+├── registry.json # optional, required for -d
+└── tasks/
+    ├── task-a/
+    │   ├── task.toml
+    │   ├── instruction.md
+    │   ├── environment/
+    │   └── tests/
+    ├── task-b/
+    │   └── ...
+    └── ...
+```
+
+`registry.json` 将数据集名称映射到任务列表。任务目录结构请参见 [Tasks → Overview](/tasks/overview)。
+
+## 身份验证 {#authentication}
+
+公开仓库无需配置即可使用。对于私有仓库，Harbor 会使用当前环境中可用的 Git 凭据（SSH（安全远程连接协议） 密钥、凭据助手、`GIT_ASKPASS` 等）。只要 `git ls-remote` 能访问仓库，`--repo` 就能正常工作。

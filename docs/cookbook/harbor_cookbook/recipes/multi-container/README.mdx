@@ -1,0 +1,42 @@
+---
+title: "multi-container"
+sidebarTitle: "multi-container"
+---
+
+此 Docker Compose（多容器编排工具） 任务包含一个额外服务，智能体通过 Docker（容器平台） 网络与其交互。
+
+## 目录结构
+
+```
+multi-container/
+├── README.md
+├── task.toml                  # Task configuration
+├── instruction.md             # Agent prompt
+├── environment/
+│   ├── Dockerfile             # Agent container
+│   ├── docker-compose.yaml    # Adds api-server service alongside main
+│   └── api-server/            # A simple REST API
+│       ├── Dockerfile
+│       └── server.py
+├── tests/
+│   ├── test.sh                # Verifier entrypoint
+│   └── test_outputs.py        # Pytest assertions
+└── solution/
+    └── solve.sh               # Reference solution
+```
+
+## 工作原理
+
+存在 `environment/docker-compose.yaml` 时，Harbor（智能体评测框架） 会将其合并到基础 Compose 配置中。`main` 服务（智能体容器）会自动配置；你只需定义覆盖项和额外服务。
+
+此处的 `docker-compose.yaml` 添加了带健康检查的 `api-server` 服务。`main` 服务使用 `depends_on` 等待该服务就绪。智能体通过 Docker 网络访问 `http://api-server:5000`，无需端口映射。
+
+## 运行
+
+```bash
+harbor run -p harbor_cookbook/recipes/multi-container --agent claude-code --model anthropic/claude-sonnet-4-6
+```
+
+## 限制
+
+多容器任务依赖 Docker Compose 网络，因此需要 **docker** 环境 provider。Harbor 的部分云 provider（Modal（云计算与沙箱平台）、E2B（云沙箱平台） 等）不支持这些任务。

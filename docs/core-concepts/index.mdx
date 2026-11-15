@@ -1,0 +1,42 @@
+---
+title: "核心概念"
+description: "了解 Harbor（智能体评测框架）的核心概念。"
+---
+
+Harbor（智能体评测框架）包含以下核心概念：
+
+## Task（任务） {#task}
+
+Task（任务）定义一条或多条指令、一个 Sandbox（沙箱）环境和一个验证器。Task 用于评测智能体和模型，并按照 [Harbor Task 格式](/tasks/overview)以目录形式实现。包含多条指令的任务请参阅[多步骤任务](/tasks/multi-step)。
+
+## Dataset（数据集） {#dataset}
+
+[数据集](/datasets/datasets)由多个 Task 组成，用于评测智能体和模型。数据集通常对应一个基准测试（例如 Terminal-Bench（终端智能体评测基准） 或 SWE-Bench（软件工程智能体评测基准） Verified），也可以通过 [Harbor Hub（任务与结果共享平台）](https://hub.harborframework.com)分发。
+
+## Agent（智能体） {#agent}
+
+Agent 是用于完成 Task 的程序。Harbor 提供[预集成智能体](/agents/pre-integrated-agents)，也支持通过 `BaseAgent` 接口实现的[自定义智能体](/agents/custom-agents)。
+
+## Sandbox（沙箱） {#sandbox}
+
+Sandbox 是运行 Task 的隔离环境。Harbor 提供 [Daytona（云沙箱平台）](https://www.daytona.io/) 和 [Modal（云计算与沙箱平台）](https://modal.com/products/sandboxes) 等[预集成沙箱](/sandboxes/pre-integrated-sandboxes)。其他运行时可通过实现 `BaseEnvironment` 集成为[自定义沙箱](/sandboxes/custom-sandboxes)。
+
+## Verifier（验证器） {#verifier}
+
+[验证器](/tasks/verifier)评估智能体的工作并生成 Task 的奖励值。
+
+## Trial（单次运行） {#trial}
+
+Trial 是一个智能体尝试完成一个 Task 的单次运行。
+
+## Job（任务运行集合） {#job}
+
+[Job](/jobs/run-a-job)是用于评测智能体和模型的一组 Trial。Job 可以组合数据集、智能体、Task 和模型。
+
+Job 会在后台生成多个 Trial 并行运行。
+
+## Trajectory（轨迹） {#trajectory}
+
+Trajectory 记录智能体完成 Task 时与用户的对话和操作历史，是理解和调试智能体行为的重要工具。
+
+Harbor 的标准轨迹格式为 [ATIF（智能体轨迹交换格式）](/agents/atif)。轨迹也可以[加载到后续的智能体会话中](/jobs/loading-trajectories)。

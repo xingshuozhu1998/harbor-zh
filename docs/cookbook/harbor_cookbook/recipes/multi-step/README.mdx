@@ -1,0 +1,61 @@
+---
+title: "多步骤任务"
+sidebarTitle: "多步骤任务"
+---
+
+Harbor（智能体评测框架） 多步骤任务示例：智能体在共享容器中按顺序完成三个步骤（搭建 → 实现 → 编写文档），每步都配置独立指令、测试、工作目录上传、验证器环境变量、健康检查和产物收集。此示例展示如何使用 `min_reward` 提前停止，以及如何通过 `multi_step_reward_strategy` 汇总奖励。
+
+## 目录结构
+
+```
+multi-step/
+├── README.md
+├── task.toml                    # schema_version = "1.1", [[steps]] entries, artifacts
+├── environment/
+│   └── Dockerfile               # Ubuntu 24.04, shared across all steps
+├── tests/
+│   └── helpers.sh               # Shared helpers merged into /tests for each step
+└── steps/
+    ├── scaffold/                # Step 1: create /app/greet.sh that prints "hello"
+    │   ├── instruction.md
+    │   ├── tests/test.sh
+    │   └── solution/solve.sh
+    ├── implement/               # Step 2: read /app/config.txt, print "Hello, <name>!"
+    │   ├── instruction.md
+    │   ├── workdir/             # Uploaded to WORKDIR before the agent runs
+    │   │   ├── config.txt       # Step-specific fixture
+    │   │   └── setup.sh         # Reserved filename: runs pre-agent, then self-deletes
+    │   ├── tests/
+    │   │   ├── test.sh          # Uses step-scoped [steps.verifier.env]
+    │   │   └── expected.txt     # Step-local fixture
+    │   └── solution/solve.sh
+    └── document/                # Step 3: write /app/README.md describing the CLI
+        ├── instruction.md
+        ├── tests/test.sh
+        └── solution/solve.sh
+```
+
+## 各步骤级功能示例
+
+- **共享辅助脚本**：任务根目录中的 `tests/helpers.sh` 会上传为每一步的 `/tests/helpers.sh`；每步的 `test.sh` 都会加载该文件。
+- **按步骤上传工作目录文件**：智能体运行前，`steps/implement/workdir/config.txt` 会放入 WORKDIR（仅适用于实现步骤）。
+- **`workdir/setup.sh` 钩子**：这是一个保留文件名，会在上传完成后、智能体启动前，以智能体用户身份从 WORKDIR 运行。脚本会在最后一行删除自身，使智能体的 WORKDIR 保持整洁。
+- **按步骤进行健康检查**：实现步骤会在智能体启动前检查搭建步骤是否已生成 `greet.sh`。
+- **按步骤设置验证器环境变量**：实现步骤会设置仅供该步骤验证器使用的 `EXPECTED_NAME` 和 `EXPECTED_GREETING`。
+- **提前停止 (`min_reward`)**：搭建步骤要求达到 `1.0`（脚本无法运行时无需继续）；实现步骤接受 `0.5`。
+- **按步骤收集产物**：每一步都会快照任务级 `/app/greet.sh`；只有文档步骤结束后才会快照 `/app/README.md`。
+
+## 运行
+
+```bash
+harbor run -p harbor_cookbook/recipes/multi-step --agent claude-code --model anthropic/claude-sonnet-4-6
+```
+
+使用 Oracle 智能体进行完整性检查；Oracle 会按顺序运行每一步的 `solve.sh`：
+
+```bash
+harbor run -p harbor_cookbook/recipes/multi-step --agent oracle
+```
+
+Trial（单次运行） 奖励应为 `1.0`，默认的 `multi_step_reward_strategy =
+"mean"`。

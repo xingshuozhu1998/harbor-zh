@@ -1,0 +1,83 @@
+---
+title: "cortex_rl"
+sidebarTitle: "cortex_rl"
+---
+
+你已经迭代了 Agent（智能体）运行框架（Prompt、工具、`SKILL.md`），使用 `harbor run` 完成评测，并扩展了一组 Harbor（智能体评测框架）Task（任务）。**现在，你希望在完全相同的运行框架和环境中训练模型权重。**
+
+使用 [Snowflake Cortex Training（Snowflake 模型训练服务）](https://github.com/Snowflake-AI-Research/Arctic-Platform/tree/main/recipes/rl/harbor) 时，无需将 Harbor Task、Agent 运行框架或 Verifier（验证器） 改写为强化学习专用格式。每个 Harbor Task 目录（`instruction.md` + `environment/` + `tests/test.sh`）**本身就是**在线强化学习环境：
+
+- **相同的 Agent 和运行框架：**在 Harbor 中评测的同一 Agent（`--agent`）、工具（`OPENHANDS_TOOLS`）、系统 Prompt（`OPENHANDS_SYSTEM_PROMPT_FILE`）和技能（`HARBOR_SKILL`）会在强化学习 Rollout 中运行。
+- **相同的 Sandbox（沙箱） 和 Verifier：**Harbor 的 `Trial` 和 `Verifier` 会在你选择的 `--env` 中执行每个 Rollout（[`snowflake`](https://github.com/harbor-framework/harbor/tree/main/src/harbor/environments/snowflake)、`docker`、`modal`、`daytona`；可信 Task 还可选择 `host`），并读取 `/logs/verifier/reward.txt` 或 `reward.json`。
+- **无需本地 GPU（图形处理器）：**可从笔记本或轻量级 CPU（中央处理器） 驱动机运行。Cortex Training 会提供远程 H200 GPU，用于分布式 vLLM（模型推理服务框架） Rollout 采样和 FSDP/Megatron GSPO/GRPO 策略更新，并通过每个 Rollout 的 OpenAI（模型服务提供商） 代理自动拼接多轮轨迹（assistant 轮次的 `loss_mask = 1`，Prompt 和工具输出为 `0`）。
+
+本目录仅提供入口。完整集成（`arctic_platform.integrations.harbor`）和配方位于 Arctic Platform 仓库：
+
+**[Arctic-Platform/recipes/rl/harbor](https://github.com/Snowflake-AI-Research/Arctic-Platform/tree/main/recipes/rl/harbor)**
+
+---
+
+## 通过 3 条命令，从 `harbor run`（评测）开始 RL（强化学习） 后训练
+
+```bash
+# 1. Authenticate to Snowflake Cortex Training (from any CPU machine)
+cortex-training login ~/cortex-training-config.json
+
+# 2. Point at the train and eval Harbor task directories you built/scaled
+export TRAIN_HARBOR_TASKS=/path/to/train_harbor_tasks
+export EVAL_HARBOR_TASKS=/path/to/eval_harbor_tasks
+export HARBOR_SKILL=/path/to/SKILL.md   # optional: ":"-separated SKILL.md paths
+
+# 3. Launch online GSPO/GRPO post-training
+export ARCTIC_CORTEX_JOB_COMMENT="<your name> harbor rl"
+bash recipes/rl/harbor/run_qwen35_4b.sh trainer.max_training_steps=50
+```
+
+`run_qwen35_4b.sh` 会自动发现 `TRAIN_HARBOR_TASKS` 和 `EVAL_HARBOR_TASKS` 下的所有 Harbor Task，构建 Parquet 数据集，每步并发运行 `64` 个 Harbor Trial（单次运行）（`8 prompts × 8 rollouts`），使用 Harbor 的 `Verifier` 对每个 Trial 评分，在远程 H200 GPU 上更新策略权重，并通过 NCCL 将权重同步回 vLLM 引擎。
+
+---
+
+## 自定义训练运行的两种方式
+
+### 方式 A：通过 `cortex-training-rl` 技能让编程 Agent 操作（推荐）
+
+从 `OpenHands/extensions` 安装 **[`cortex-training-rl`](https://github.com/OpenHands/extensions/tree/main/skills/cortex-training-rl)** 技能（也可以在 OpenHands（开源编程智能体平台）、Claude Code（Anthropic 编程智能体） 或 Cursor（AI 编程工具） 中调用 `/cortex-training-rl`），然后告诉 Agent 你要训练什么：
+
+> *"Use `/cortex-training-rl` to post-train `Qwen/Qwen3-8B` on my Harbor tasks in `~/my-harbor-tasks/train` and `~/my-harbor-tasks/eval` with `HARBOR_SKILL=~/my-skill/SKILL.md`, `MAX_TURNS=15`, and `--env snowflake` for 50 steps."*
+
+该技能了解 [`recipes/rl/harbor/run_qwen35_4b.sh`](https://github.com/Snowflake-AI-Research/Arctic-Platform/blob/main/recipes/rl/harbor/run_qwen35_4b.sh) 的所有参数，并能端到端处理工作流：
+1. **预检和超参数配置：**检查 H200 容量（`cortex-training capacity --hardware H200`）、验证 Harbor Task 目录，并执行 128 MiB Token 预算限制（`BATCH_SIZE * N_ROLLOUTS * MAX_CONTEXT_LENGTH`）。
+2. **后台启动和实时监控：**启动 `run_qwen35_4b.sh`，持续查看 `trajectories/step_*/` 中各步骤的奖励和 `.error` 数量，并生成 `reward_graph.svg` 跟踪收敛情况。
+3. **释放 GPU：**运行结束后取消远程 Cortex 训练和采样子任务，避免 GPU 空闲占用。
+
+### 方式 B：直接调整 `recipes/rl/harbor/run_qwen35_4b.sh`
+
+[`recipes/rl/harbor/run_qwen35_4b.sh`](https://github.com/Snowflake-AI-Research/Arctic-Platform/blob/main/recipes/rl/harbor/run_qwen35_4b.sh) 是一个独立的 Bash（命令行解释器） 脚本，约 200 行。运行框架设置、Sandbox 后端、模型和 RL 超参数都通过环境变量公开（还可通过 `"$@"` 传入 SkyRL（强化学习训练框架） Hydra（配置管理框架） 覆盖参数）：
+
+| 要修改的内容 | 变量 / 标志 | 默认值 | 示例 |
+| :--- | :--- | :--- | :--- |
+| **Task 数据集** | `TRAIN_HARBOR_TASKS`、`EVAL_HARBOR_TASKS` | — | `~/tasks/train`、`~/tasks/eval` |
+| **Agent 技能（`SKILL.md`）** | `HARBOR_SKILL` | — | `~/skills/debug/SKILL.md:~/skills/git/SKILL.md` |
+| **Agent 工具** | `OPENHANDS_TOOLS` | `terminal` | `terminal,file_editor,task_tracker` |
+| **Agent 系统 Prompt** | `OPENHANDS_SYSTEM_PROMPT_FILE` | 内置值 | `~/prompts/custom_agent.j2` |
+| **Harbor Agent 类** | `HARBOR_AGENT` | `OpenHandsHarborAgent` | `my_pkg:MyAgent`（在驱动机上运行的 Harbor `BaseAgent`；不接受安装在环境内部的 Agent） |
+| **Harbor Sandbox（`--env`）** | `HARBOR_ENV` | [`snowflake`](https://github.com/harbor-framework/harbor/tree/main/src/harbor/environments/snowflake) | `docker`、`modal`、`daytona`、`e2b`、`host`（仅可信 Task） |
+| **基础模型** | `MODEL` | `Qwen/Qwen3.5-4B` | `Qwen/Qwen3-8B`、`Qwen/Qwen2.5-Coder-7B-Instruct` |
+| **GPU 分配（训练 / 采样）** | `NUM_TRAIN_GPUS` / `NUM_SAMPLING_ENGINES` | `4` / `4` | `8` / `8` |
+| **Rollout 并发数** | `BATCH_SIZE` $\times$ `N_ROLLOUTS` | `8` $\times$ `8`（每步 `64` 个） | `16` $\times$ `8`（每步 `128` 个） |
+| **轮次数和上下文长度** | `MAX_TURNS` / `MAX_CONTEXT_LENGTH` | `10` / `32768` | `20` / `32768` |
+| **学习率和 RL 损失** | `LR` / Hydra CLI（命令行界面） 参数 | `1.0e-6`（`gspo`） | `LR=5e-7 trainer.algorithm.policy_loss_type=grpo` |
+
+以下命令在一次调用中调整模型、Sandbox、工具和轮次数：
+
+```bash
+MODEL=Qwen/Qwen3-8B \
+HARBOR_ENV=snowflake \
+HARBOR_SKILL=~/skills/my_skill/SKILL.md \
+OPENHANDS_TOOLS=terminal,file_editor \
+MAX_TURNS=15 \
+BATCH_SIZE=8 N_ROLLOUTS=8 \
+bash recipes/rl/harbor/run_qwen35_4b.sh trainer.max_training_steps=100
+```
+
+完整设置说明、SWE-smith 代码定位复现步骤和收敛曲线示例，请参阅 [Arctic Platform Harbor RL README](https://github.com/Snowflake-AI-Research/Arctic-Platform/tree/main/recipes/rl/harbor)。

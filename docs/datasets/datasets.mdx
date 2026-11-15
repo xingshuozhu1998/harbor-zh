@@ -1,0 +1,46 @@
+---
+title: "数据集"
+description: "用于评测和训练的任务集合。"
+---
+
+[Harbor（智能体评测框架） Task（任务）](/tasks/overview)由一条指令、一个 Sandbox（沙箱）环境和一个测试脚本组成。Dataset（数据集）是 Task 的集合，有时会定义用于汇总任务奖励的自定义指标。
+
+数据集有三种使用方式：
+
+1. **本地数据集**：运行本地任务目录或 `dataset.toml` 清单文件
+2. **已发布的数据集**：运行来自 [Harbor Hub（任务与结果共享平台）](https://hub.harborframework.com/) 的数据集
+3. **Git（版本控制工具） 仓库数据集**：运行 Git 仓库中的数据集
+
+## 本地数据集 {#local-datasets}
+
+使用 `--path` 或 `-p` 运行本地数据集：
+
+```bash
+harbor run -p "<path/to/dataset>" -a "<agent>" -m "<model>"
+```
+
+路径可以指向任务目录或 `dataset.toml` 清单文件。
+
+## 已发布的数据集 {#published-datasets}
+
+你可以将数据集发布到 [Harbor Hub](https://hub.harborframework.com/)，与组织成员共享，也可以公开发布。
+
+使用 `--dataset` 或 `-d` 运行已发布的数据集：
+
+```bash
+harbor run -d "<org/name@version>" -a "<agent>" -m "<model>"
+```
+
+如何创建和发布数据集，请参阅[发布数据集](/datasets/create-a-dataset#publish-a-dataset)。
+
+## Git 仓库数据集 {#git-repository-datasets}
+
+使用 `--repo` 直接从任意 Git 仓库运行数据集：
+
+```bash
+harbor run --repo org/repo-name -p "./tasks" -a "<agent>" -m "<model>"
+```
+
+支持 GitHub（代码托管平台）、GitLab 和 Hugging Face URL，也可以选择固定到特定 ref（例如 `@v1.0`、`@main`）。
+
+完整说明请参阅 [Git 仓库](/datasets/git-repos)。

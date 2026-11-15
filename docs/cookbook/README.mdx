@@ -1,0 +1,49 @@
+---
+title: "Harbor（智能体评测框架） Cookbook（实践示例集）"
+sidebarTitle: "Cookbook 概览"
+---
+
+ [![](https://dcbadge.limes.pink/api/server/https://discord.gg/6xWPKhGDbA)](https://discord.gg/6xWPKhGDbA)
+[![Docs](https://img.shields.io/badge/Docs-000000?style=for-the-badge&logo=mdbook&color=105864)](/getting-started/quick-start)
+
+使用 [Harbor](https://github.com/harbor-framework/harbor) 构建评测并优化智能体的真实示例。 
+
+## 快速开始
+
+安装 Harbor：
+
+```bash
+uv tool install harbor
+```
+
+运行任意任务示例：
+
+```bash
+harbor run -p harbor_cookbook/recipes/<name> -a claude-code -m anthropic/claude-opus-4-6
+```
+
+## 任务示例
+
+| 名称 | 说明 |
+|:--|:--|
+| [simple&#8209;task](/cookbook/harbor_cookbook/recipes/simple-task/README) | 最小的单容器任务。 |
+| [multi&#8209;container](/cookbook/harbor_cookbook/recipes/multi-container/README) | 使用 Docker Compose（多容器编排工具） 的任务，智能体通过本地托管的 REST（一种接口设计风格） API（应用程序接口） 进行交互。 |
+| [mcp&#8209;tools](/cookbook/harbor_cookbook/recipes/mcp-tools/README) | 通过本地托管的 FastMCP（MCP 服务开发框架） 服务器向智能体提供自定义工具。 |
+| [multi&#8209;reward](/cookbook/harbor_cookbook/recipes/multi-reward/README) | 多个独立验证器分别生成各自的分数。 |
+| [simulated&#8209;user](/cookbook/harbor_cookbook/recipes/simulated-user/README) | 智能体通过与模拟用户交谈来发现需求。 |
+| [computer&#8209;use&#8209;ubuntu](/cookbook/harbor_cookbook/recipes/computer-use-ubuntu/README) | 在 Ubuntu（Linux 发行版） 虚拟桌面上使用计算机的参考实现。 |
+| [computer&#8209;use&#8209;windows](/cookbook/harbor_cookbook/recipes/computer-use-windows/README) | 在远程 Windows（微软操作系统） 桌面（Daytona（云沙箱平台））上使用计算机的参考实现。 |
+| [dns&#8209;blacklisting](/cookbook/harbor_cookbook/recipes/dns-blacklisting/README) | 使用精确、通配符和正则表达式规则在网络层屏蔽主机名。 |
+| [skills](/cookbook/harbor_cookbook/recipes/skills/README) | 向智能体提供自定义技能。 |
+| [multi&#8209;step](/cookbook/harbor_cookbook/recipes/multi-step/README) | 按顺序执行的多步骤任务，包含逐步指令、测试、工作目录上传、健康检查、提前停止和步骤级产物。 |
+
+## 优化示例
+
+| 名称 | 说明 |
+|:--|:--|
+| [cortex&#8209;rl](/cookbook/harbor_cookbook/cortex_rl/README) | 使用 Snowflake Cortex Training（Snowflake 模型训练服务） 对 Harbor 任务进行 RL（强化学习） 后训练。 |
+| [harbor&#8209;rl](/cookbook/harbor_cookbook/harbor_rl/README) | 使用 harbor.rl + Tinker（模型训练服务） 对 Harbor 任务进行 RL 训练。 |
+| [gepa](/cookbook/harbor_cookbook/gepa/README) | 使用 Harbor + GEPA（基于反馈的演化优化方法） 优化 MedAgentBench（医疗智能体评测基准） 智能体框架。 |
+| [tinker&#8209;rl](/cookbook/harbor_cookbook/tinker_rl/README) | 使用 Tinker Cookbook 集成对 Harbor 任务进行 RL 训练。 |
+| [prime&#8209;rl](/cookbook/harbor_cookbook/prime_rl/README) | 使用 Prime RL（强化学习训练框架） 和 Verifiers 对 Harbor 任务进行 RL 训练。 |
+| [sky&#8209;rl](/cookbook/harbor_cookbook/sky_rl/README) | 使用 SkyRL（强化学习训练框架） 对 Harbor 任务进行 RL 训练。 |

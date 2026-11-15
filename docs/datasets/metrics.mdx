@@ -1,0 +1,145 @@
+---
+title: "指标"
+description: "自定义数据集指标。"
+---
+
+指标用于定义如何汇总一个 Job（任务运行集合）或数据集中的各项 Task（任务）奖励。默认情况下，Harbor（智能体评测框架） 会对各任务奖励取平均值，并将缺失的奖励视为 0。
+
+你可能需要定义自定义逻辑，或以不同方式处理缺失奖励。为此，可以创建 `metric.py` 文件。如果你使用 `dataset.toml`，可以运行以下命令创建 `metric.py`，并自动将其添加到 `dataset.toml` 的 `[[files]]` 部分：
+
+```bash
+harbor init --dataset "<org>/<name>" --with-metric
+```
+
+如果你运行的是本地数据集，且数据集目录中存在 `metric.py`，Harbor 会自动使用它。
+
+## 默认行为 {#default-behavior}
+
+默认情况下，Harbor 会对各任务奖励取平均值，并将缺失奖励视为 0。
+
+<Tabs>
+  <Tab title="单维度">
+    ```jsonl title="Rewards"
+    {"reward": 1}
+    {"reward": 0}
+    null
+    {"reward": 0}
+    ```
+
+    ```json title="Aggregate"
+    {"mean": 0.25}
+    ```
+  </Tab>
+
+  <Tab title="多维度">
+    ```jsonl title="Rewards"
+    {"correctness": 1, "style": 0.5}
+    {"correctness": 0, "style": 1}
+    null
+    {"correctness": 1, "style": 0.5}
+    ```
+
+    ```json title="Aggregate"
+    {"correctness": 0.5, "style": 0.5}
+    ```
+  </Tab>
+
+  <Tab title="缺失维度">
+    ```jsonl title="Rewards"
+    {"correctness": 1}
+    {"style": 1}
+    {}
+    null
+    ```
+
+    ```json title="Aggregate"
+    {"correctness": 0.25, "style": 0.25}
+    ```
+  </Tab>
+</Tabs>
+
+对于单维度奖励，Harbor 会将汇总值命名为该指标的名称（`mean`）。对于多维度奖励，Harbor 会分别汇总每个维度。缺失的奖励和维度都按 0 计。
+
+## 使用 `metric.py` 自定义指标 {#custom-metrics-with-metric-py}
+
+`metric.py` 脚本必须接受以下参数：
+
+* `-i, --input-path`：奖励 JSONL（逐行 JSON 格式） 文件
+* `-o, --output-path`：写入计算所得指标的 JSON（结构化数据格式） 文件
+
+### 示例 {#example}
+
+```python title="metric.py"
+# /// script
+# dependencies = []
+# ///
+# To add a dependency: uv add --script metric.py <dependency>
+
+import argparse
+import json
+from pathlib import Path
+
+
+def main(input_path: Path, output_path: Path):
+    rewards = []
+
+    for line in input_path.read_text().splitlines():
+        reward = json.loads(line)
+        if reward is None:
+            rewards.append(0)
+        elif len(reward) != 1:
+            raise ValueError(
+                f"Expected exactly one key in reward dictionary, got {len(reward)}"
+            )
+        else:
+            rewards.extend(reward.values())
+
+    mean = sum(rewards) / len(rewards) if rewards else 0
+
+    output_path.write_text(json.dumps({"mean": mean}))
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-i",
+        "--input-path",
+        type=Path,
+        required=True,
+        help="Path to a jsonl file containing rewards, one json object per line.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output-path",
+        type=Path,
+        required=True,
+        help="Path to a json file where the metric will be written as a json object.",
+    )
+    args = parser.parse_args()
+    main(args.input_path, args.output_path)
+```
+
+### 注意事项 {#considerations}
+
+实现自定义指标时，请确保正确处理以下情况：
+
+1. 奖励键缺失或无效
+2. 奖励值无效
+3. JSONL 输入中的空值行
+4. 默认汇总奖励键
+
+### 发布自定义指标 {#publishing-custom-metrics}
+
+发布数据集时，Harbor 会自动发布同一目录中的 `metric.py` 文件：
+
+```bash
+harbor publish "<path/to/dataset>" --public
+```
+
+### 输出格式 {#output-format}
+
+`metric.py` 的输出应为 JSON 对象。可以包含多个指标值：
+
+```json
+{"mean": 0.81, "pass_rate": 0.5}
+```

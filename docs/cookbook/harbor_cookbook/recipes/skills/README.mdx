@@ -1,0 +1,37 @@
+---
+title: "技能"
+sidebarTitle: "技能"
+---
+
+通过 `task.toml` 中的 `skills_dir` 设置向智能体提供自定义技能。
+
+## 目录结构
+
+```
+skills/
+├── README.md
+├── task.toml                  # skills_dir declared under [environment]
+├── instruction.md             # Agent prompt
+├── environment/
+│   ├── Dockerfile             # Agent container; copies skills into /skills
+│   └── skills/
+│       └── generate-greeting/
+│           └── SKILL.md       # Skill definition (YAML frontmatter + instructions)
+├── tests/
+│   ├── test.sh                # Verifier entrypoint
+│   └── test_greeting.py       # Pytest tests
+└── solution/
+    └── solve.sh               # Reference solution
+```
+
+## 工作原理
+
+`task.toml` 的 `[environment]` 下的 `skills_dir` 键用于告知 Harbor（智能体评测框架） 在 `environment/` 配置中何处查找技能定义。启动时，Harbor 会将该路径中的所有子目录复制到智能体的原生技能目录（例如 Claude Code（Anthropic 编程智能体） 使用 `~/.claude/skills/`）。
+
+每项技能都是包含 `SKILL.md` 文件的子目录，并遵循官方 [Skills 规范](https://agentskills.io/specification)。
+
+## 运行
+
+```bash
+harbor run -p harbor_cookbook/recipes/skills --agent claude-code --model anthropic/claude-sonnet-4-6
+```

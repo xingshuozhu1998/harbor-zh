@@ -1,0 +1,46 @@
+---
+title: "DNS 黑名单"
+sidebarTitle: "DNS 黑名单"
+---
+
+通过本地 HTTP（超文本传输协议） 网关按模式屏蔽主机名。智能体需要判断在精确匹配、通配符和正则表达式规则同时生效时，哪些域名可以访问。
+
+## 目录结构
+
+```
+dns-blacklisting/
+├── task.toml
+├── instruction.md
+├── environment/
+│   ├── Dockerfile
+│   ├── entrypoint.sh
+│   ├── blacklist-patterns.txt
+│   ├── candidate-domains.txt
+│   └── block-server.py
+├── tests/
+│   ├── test.sh
+│   └── test_dns.py
+└── solution/
+    └── solve.sh
+```
+
+## 运行
+
+```bash
+harbor run -p harbor_cookbook/recipes/dns-blacklisting --agent claude-code --model anthropic/claude-sonnet-4-6
+```
+
+
+## 工作原理
+
+入口脚本会将任务中的候选域名路由到 `127.0.0.1`，使每个请求都到达本地 Python（编程语言） HTTP 服务器。服务器会检查请求的 `Host` 标头，并根据从 `blacklist-patterns.txt` 加载的规则决定返回 `200 OK` 还是 `403 ACCESS DENIED`。
+
+支持的模式格式：
+
+- `google.com`：精确匹配主机名
+- `*.python.org`：通配符匹配子域名
+- `regex:^shop-[0-9]+\.example\.net$`：使用正则表达式匹配
+
+## 限制
+
+此黑名单无法做到绝对可靠。智能体可能检查或修改预置文件，也可能完全绕过任务的路由配置。因此，拒绝访问消息应明确告知智能体该域名在此环境中不可用，避免智能体尝试绕过限制。`tests/` 中的评分程序也可以检查智能体是否遵守规则。

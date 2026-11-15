@@ -1,0 +1,22 @@
+---
+title: "computer-use-ubuntu"
+sidebarTitle: "computer-use-ubuntu"
+---
+
+一个计算机操作 Task（任务）：Agent（智能体）通过 Ubuntu（Linux 发行版）（XFCE4（轻量桌面环境））虚拟桌面完成多步骤图形界面挑战。工具集与 [Anthropic（模型服务提供商） computer-use 演示](https://github.com/anthropics/claude-quickstarts/tree/main/computer-use-demo)类似。
+
+## 工作原理
+
+Ubuntu 桌面（Xvfb + XFCE4）与提供计算机操作工具的 FastMCP（MCP 服务开发框架） 服务器一起运行在一个独立容器中。由于这些工具需要直接访问 X 显示器，桌面和 MCP（模型上下文协议） 服务器共用同一个容器。
+
+一个 tkinter 应用（`challenge.py`）会显示多步骤挑战，要求 Agent 点击按钮、输入文本并读取屏幕结果。完成该 Task 必须实际操作图形界面。
+
+## 运行
+
+```bash
+harbor run -p harbor_cookbook/recipes/computer-use-ubuntu --agent claude-code --model anthropic/claude-sonnet-4-6
+```
+
+## 限制
+
+多容器 Task 依赖 Docker Compose（多容器编排工具） 网络，因此必须使用 **docker** 环境提供方。Harbor（智能体评测框架） 的部分云提供方（如 Modal（云计算与沙箱平台）、E2B（云沙箱平台））不支持此类 Task。

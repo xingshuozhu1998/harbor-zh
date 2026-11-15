@@ -1,0 +1,44 @@
+---
+title: "MCP（模型上下文协议） 工具"
+sidebarTitle: "MCP 工具"
+---
+
+通过在独立容器中运行 FastMCP（MCP 服务开发框架） 服务器，为智能体提供自定义 MCP 工具。
+
+## 目录结构
+
+```
+mcp-tools/
+├── README.md
+├── task.toml                  # MCP server declared under [[environment.mcp_servers]]
+├── instruction.md             # Agent prompt
+├── environment/
+│   ├── Dockerfile             # Agent container
+│   ├── docker-compose.yaml    # Adds mcp-server service alongside main
+│   └── mcp-server/            # FastMCP server (streamable-http)
+│       ├── Dockerfile
+│       └── server.py
+├── tests/
+│   ├── test.sh                # Verifier entrypoint
+│   └── test_outputs.py        # Pytest tests
+└── solution/
+    └── solve.sh               # Reference solution
+```
+
+## 工作原理
+
+`task.toml` 中的 `[[environment.mcp_servers]]` 部分用于声明 MCP 服务器。Harbor（智能体评测框架） 会在启动时将此配置传递给智能体；各智能体自行决定如何使用该配置（例如 Claude Code（Anthropic 编程智能体） 会将其写入 `~/.claude.json`）。
+
+MCP 服务器本身是一个 FastMCP 应用（`environment/mcp-server/server.py`），运行在配套容器中，并通过 8000 端口以 `streamable-http` 方式提供服务。
+
+`docker-compose.yaml` 按照 `multi-container` 配方中的方式，将 MCP 服务器服务与智能体主容器连接起来。
+
+## 运行
+
+```bash
+harbor run -p harbor_cookbook/recipes/mcp-tools --agent claude-code --model anthropic/claude-sonnet-4-6
+```
+
+## 限制
+
+多容器任务要求使用 **docker** 环境提供方，因为它们依赖 Docker Compose（多容器编排工具） 网络。Harbor 的部分云端提供方（如 Modal（云计算与沙箱平台）、E2B（云沙箱平台））不支持此功能。

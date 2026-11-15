@@ -1,0 +1,22 @@
+---
+title: "computer-use-windows"
+sidebarTitle: "computer-use-windows"
+---
+
+一个在远程 Windows（微软操作系统） 桌面上进行计算机操作的 Task（任务）。MCP（模型上下文协议） 服务器会创建 [Daytona（云沙箱平台）](https://daytona.io) Windows Sandbox（沙箱），部署多步骤 tkinter 挑战，并向 Agent（智能体）提供截图、点击和输入等工具。工具集与 [Anthropic（模型服务提供商） computer-use 演示](https://github.com/anthropics/claude-quickstarts/tree/main/computer-use-demo)类似。
+
+> **注意：**Daytona Windows Computer Use 目前处于早期预览阶段。需要拥有 [win.trydaytona.com](https://win.trydaytona.com/) 的 Beta 账户，并可使用 `windows-base` 快照。[了解更多](https://www.daytona.io/docs/en/computer-use/)
+
+## 运行
+
+```bash
+harbor run -p harbor_cookbook/recipes/computer-use-windows \
+  --agent claude-code --model anthropic/claude-sonnet-4-6 \
+  --env-file .env -y
+```
+
+Your `.env` needs:
+```
+DAYTONA_API_KEY=your_key_here
+DAYTONA_API_URL=https://win.trydaytona.com/api
+```

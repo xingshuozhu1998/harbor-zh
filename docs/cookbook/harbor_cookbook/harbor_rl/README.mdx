@@ -1,0 +1,22 @@
+---
+title: "harbor-rl"
+sidebarTitle: "harbor-rl"
+---
+
+通过 [harbor.rl](https://github.com/harbor-framework/harbor/pull/1291) 接口和 [Tinker（模型训练服务）](https://github.com/thinking-machines-lab/tinker)，在 Harbor（智能体评测框架） Task（任务）上进行强化学习训练。
+
+`harbor.rl` 可将任意 Harbor Task 转换为带有 `step()`/`grade()` 的强化学习环境。Tinker 负责采样、梯度计算和权重更新。`train.py` 用约 120 行代码连接二者。
+
+## 快速入门
+
+```bash
+uv run harbor_cookbook/harbor_rl/train.py \
+    --model moonshotai/Kimi-K2-Thinking \
+    --group-size 4 \
+    --batch-size 8
+```
+
+## 前置条件
+
+- [Tinker](https://github.com/thinking-machines-lab/tinker) API（应用程序接口） 密钥
+- Sandbox（沙箱） 提供方 API 密钥（例如 [Modal（云计算与沙箱平台）](https://modal.com)、[Daytona（云沙箱平台）](https://daytona.io)、[E2B（云沙箱平台）](https://e2b.dev)）
