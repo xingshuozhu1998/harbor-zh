@@ -1,0 +1,217 @@
+---
+title: "自定义 Sandbox（沙箱）"
+description: "将自定义 Sandbox 集成到 Harbor（智能体评测框架） 并运行任务。"
+---
+
+自定义 Sandbox（沙箱）是在 Harbor [内置注册表](/sandboxes/pre-integrated-sandboxes)之外开发的提供方集成。它可以是本地开发中的实现，也可以是不会贡献到上游的私有集成。实现 `BaseEnvironment` 即可添加自定义 Sandbox。
+
+## 运行自定义 Sandbox {#run-a-custom-sandbox}
+
+自定义 Sandbox 不会按名称注册，因此需要将 `module.path:ClassName` 传给 `--env`（`-e`）。Harbor 会在宿主机上导入自定义 Sandbox。请在与 Harbor 相同的 Python（编程语言） 环境中安装其模块和提供方 SDK（软件开发工具包）。若 `my_sandbox.py` 中定义了 `MySandbox` 类，请使用 `my_sandbox:MySandbox`。
+
+<Tabs>
+  <Tab title="CLI">
+    ```bash
+    export OPENAI_API_KEY="..."
+    harbor run \
+      -t hello-world/hello-world \
+      -a codex -m openai/gpt-5.6-sol \
+      -e my_sandbox:MySandbox
+    ```
+  </Tab>
+
+  <Tab title="配置文件">
+    ```json config.json
+    {
+      "environment": {
+        "import_path": "my_sandbox:MySandbox"
+      },
+      "agents": [
+        {
+          "name": "codex",
+          "model_name": "openai/gpt-5.6-sol"
+        }
+      ],
+      "tasks": [
+        {
+          "name": "hello-world/hello-world"
+        }
+      ]
+    }
+    ```
+
+    ```bash
+    export OPENAI_API_KEY="..."
+    harbor run --config config.json
+    ```
+  </Tab>
+
+  <Tab title="Python">
+    ```python
+    import asyncio
+
+    from harbor.job import Job
+    from harbor.models.job.config import JobConfig
+    from harbor.models.trial.config import (
+        AgentConfig,
+        EnvironmentConfig,
+        TaskConfig,
+    )
+
+
+    async def main():
+        job = await Job.create(
+            JobConfig(
+                environment=EnvironmentConfig(
+                    import_path="my_sandbox:MySandbox",
+                ),
+                agents=[
+                    AgentConfig(
+                        name="codex",
+                        model_name="openai/gpt-5.6-sol",
+                    )
+                ],
+                tasks=[TaskConfig(name="hello-world/hello-world")],
+            )
+        )
+        await job.run()
+
+
+    asyncio.run(main())
+    ```
+  </Tab>
+</Tabs>
+
+使用 `--environment-kwarg`（`--ek`）或 `environment.kwargs` 传递构造函数选项：
+
+```bash
+harbor run ... -e my_sandbox:MySandbox --ek region=us-west-2
+```
+
+## 声明 Sandbox 选项 {#declare-sandbox-options}
+
+将 `options_model` 设为 `EnvironmentOptions` 子类，以校验 Sandbox 的 `--ek` 值。请将声明添加到现有 Sandbox 实现中：
+
+```python my_sandbox.py
+from pydantic import Field
+
+from harbor.environments.base import BaseEnvironment
+from harbor.environments.options import EnvironmentOptions
+
+
+class MySandboxOptions(EnvironmentOptions):
+    region: str = Field(default="us-west-2", description="Sandbox region.")
+
+
+class MySandbox(BaseEnvironment):
+    options_model = MySandboxOptions
+
+    # Keep your lifecycle, execution, and file-transfer methods here.
+```
+
+`BaseEnvironment.__init__()` 会绑定运行时输入、校验其余用户 kwargs，并将解析后的模型保存到 `self.options`。如果 Sandbox 需要构造函数逻辑，请在读取选项前将参数传给基类：
+
+```python
+class MySandbox(BaseEnvironment):
+    options_model = MySandboxOptions
+    options: MySandboxOptions
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.region = self.options.region
+
+    # Keep your lifecycle, execution, and file-transfer methods here.
+```
+
+如果你只在生命周期方法中读取选项，则无需覆盖构造函数。如果基类校验依赖必须提前初始化的提供方状态，请显式声明运行时输入，并在调用 `super().__init__()` 前解析其余提供方 kwargs。基类会保留已解析的选项。
+
+Harbor 会在 Trial（单次运行）排队前校验已声明的选项，并拒绝未知键。请勿将路径、日志记录器和 Task（任务）配置等注入的运行时输入放入选项模型中。未设置 `options_model` 的自定义环境会保留现有 kwargs 行为。
+
+预检覆盖方法会收到面向用户的 kwargs。接受该参数，并在检查提供方凭据之前调用 `super().preflight(kwargs)`：
+
+```python
+from typing import Any
+
+
+@classmethod
+def preflight(cls, kwargs: dict[str, Any] | None = None) -> None:
+    super().preflight(kwargs)
+    # Check credentials required by your provider here.
+```
+
+没有参数的 `preflight(cls)` 覆盖方法必须更新为此签名。
+
+无需启动 Sandbox 即可列出内置环境：
+
+```bash
+harbor environment list
+```
+
+## 实现自定义 Sandbox {#implement-a-custom-sandbox}
+
+继承 [`BaseEnvironment`](https://github.com/harbor-framework/harbor/blob/main/src/harbor/environments/base.py)，并实现其生命周期、命令执行和文件传输方法。Harbor 会拒绝未继承 `BaseEnvironment` 的自定义类。使用 `_validate_definition()` 拒绝缺少必需文件的 Task，例如缺少 [`environment/Dockerfile`](/tasks/environment)。如果不要求 Task 提供文件，该方法可以留空。
+
+<Accordion title="BaseEnvironment 接口">
+  ```python my_sandbox.py
+  from pathlib import Path
+
+  from harbor.environments.base import BaseEnvironment, ExecResult
+  from harbor.environments.capabilities import EnvironmentCapabilities
+
+
+  class MySandbox(BaseEnvironment):
+      @staticmethod
+      def type() -> str:
+          return "my-sandbox"
+
+      @property
+      def capabilities(self) -> EnvironmentCapabilities:
+          return EnvironmentCapabilities()
+
+      def _validate_definition(self) -> None:
+          # Validate the task's environment/ directory.
+          ...
+
+      async def start(self, force_build: bool) -> None:
+          # Build or create the sandbox, then prepare prebuilt-image tasks.
+          ...
+          await self._upload_environment_dir_after_start()
+
+      async def stop(self, delete: bool) -> None:
+          ...
+
+      async def exec(
+          self,
+          command: str,
+          cwd: str | None = None,
+          env: dict[str, str] | None = None,
+          timeout_sec: int | None = None,
+          user: str | int | None = None,
+      ) -> ExecResult:
+          env = self._merge_env(env)
+          user = self._resolve_user(user)
+          # Execute through the provider and return stdout, stderr, and return code.
+          ...
+
+      async def upload_file(self, source_path: Path | str, target_path: str) -> None:
+          ...
+
+      async def upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
+          ...
+
+      async def download_file(self, source_path: str, target_path: Path | str) -> None:
+          ...
+
+      async def download_dir(self, source_dir: str, target_dir: Path | str) -> None:
+          ...
+  ```
+</Accordion>
+
+`_merge_env()` 会应用 Sandbox、Agent（智能体）阶段和 Verifier（验证器）阶段的变量。`_resolve_user()` 会应用 Harbor 的默认执行用户。每个 `exec()` 实现都必须调用这两个方法。
+
+仅声明提供方实际执行的能力。如果启用了 `docker_compose`，还需实现 [Compose Task](/tasks/multi-container) 使用的逐服务执行和文件传输方法。
+
+<Note>
+  添加 `preflight()`，以便在 Trial 排队前检查提供方凭据。提供方凭据应保留在 Harbor 进程中；请参阅
+  [环境变量](/jobs/environment-variables)。
+</Note>

@@ -1,0 +1,71 @@
+---
+title: "工件"
+description: "声明要保留并传递给 Verifier（验证器） 的 Task（任务） 输出。"
+---
+
+工件是 Agent（智能体）运行后从 Sandbox（沙箱）中收集的文件或目录。在 `task.toml` 中声明工件，可保留输出供检查，并将其传递给[独立 Verifier（验证器）](/tasks/separate-verifier)。
+
+## 配置 {#configuration}
+
+在 `task.toml` 的顶层、所有段落标题之前设置 `artifacts`：
+
+```toml task.toml
+artifacts = ["/app/report.json", "/app/output"]
+```
+
+Harbor（智能体评测框架） 会将这些文件保存到 `<trial-dir>/artifacts/app/` 下。可在结果查看器的[工件标签页](/results/view-job-results#trial-files)中查看。
+
+### 高级选项 {#advanced-options}
+
+使用对象可自定义收集方式。字符串和对象可以混合使用：
+
+```toml task.toml
+artifacts = [
+  "/app/report.json",
+  { source = "/app/output", destination = "output", exclude = ["*.tmp"] },
+]
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `source` | Sandbox 中的文件或目录。必填。 |
+| `destination` | `<trial-dir>/artifacts/` 下的相对路径。默认值为去掉根路径后的来源路径。 |
+| `exclude` | 收集目录时要排除的模式。 |
+| `service` | 要从中收集文件的 Compose 服务。默认值为 `main`。 |
+
+有关 Sidecar 输出和收集前命令，请参阅 [Sidecar 工件](/jobs/artifact-collection#sidecar-artifacts)。
+
+## 独立 Verifier {#separate-verifiers}
+
+[独立 Verifier](/tasks/separate-verifier) 会在全新的 Sandbox 中启动，不包含 Agent 对文件系统所做的更改。请将其需要的每个 Agent 生成文件都声明为工件。Harbor 会在 Agent 运行结束后收集这些文件，并在评分前将其复制到 Verifier 中。
+
+```toml task.toml
+artifacts = ["/app/report.json"]
+
+[verifier]
+environment_mode = "separate"
+```
+
+Verifier 可以读取 `/app/report.json`。工件路径会被保留；`destination` 只会更改文件在宿主机上的保存路径。无需单独配置传输。
+
+除当前会自动收集的 `/logs/artifacts/` 目录外，未声明的输出不会传输。专用 Verifier 镜像会包含评分代码；复用 Agent 环境时，Harbor 会上传 `tests/`。请参阅[镜像选择](/tasks/separate-verifier#image-selection)。
+
+Harbor 会清理上传到独立 Verifier 的工件，防止 Agent 利用 setuid 二进制文件或指向参考解答的符号链接作弊。请参阅[清理工件](/tasks/separate-verifier#sanitize-artifacts)。
+
+## 多步骤 Task {#multi-step-tasks}
+
+在 `[[steps]]` 下添加特定步骤的输出：
+
+```toml task.toml
+[[steps]]
+name = "report"
+artifacts = ["/app/report.json"]
+```
+
+这些工件会与 Task 级和运行级工件合并，在步骤的 Verifier 运行前收集，并保存到 `steps/<step-name>/artifacts/` 下。请参阅[多步骤](/tasks/multi-step)。
+
+<Warning>
+  即将移除从 `/logs/artifacts/` 自动收集工件的功能。创建新 Task 时请显式声明工件。
+</Warning>
+
+有关 CLI/运行级添加方式和收集报告，请参阅[工件收集](/jobs/artifact-collection)。

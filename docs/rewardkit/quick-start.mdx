@@ -1,0 +1,465 @@
+---
+title: "快速入门"
+description: "定义并运行可生成奖励分数的 Verifier（验证器）。"
+---
+
+Rewardkit（奖励验证工具库）可让你针对 Agent（智能体）的工作区和轨迹定义 Verifier（验证器）。它会并行运行各项判定标准，并将分数写入 JSON（结构化数据格式）。判定标准可以是：
+
+- **程序化判定：**检查文件、运行命令或评估输出的 Python（编程语言） 函数
+- **裁判判定：**使用可重复利用的 TOML（配置文件格式） 文件配置的 LLM 或 Agent 裁判
+
+<Info>
+  Rewardkit 是一个独立的 Python 软件包。与 Harbor（智能体评测框架）配合使用时功能最强大，也可以单独使用。
+</Info>
+
+## 安装 {#installation}
+
+```bash
+uv tool install harbor-rewardkit
+```
+
+对于需要读取图像或 PDF、DOCX、PPTX、XLSX 等常见文档文件的判定标准或裁判，请安装额外依赖：
+
+```bash
+uv tool install harbor-rewardkit[all]
+```
+
+## 与 Harbor 搭配使用 {#using-with-harbor}
+
+Harbor 会将 Task（任务）的 `tests/` 目录复制到 `/tests` 并运行 `test.sh`。请将判定标准文件放在该目录中：
+
+```bash
+tests/
+├── files.py
+├── quality.toml
+└── test.sh
+```
+
+程序化判定写在 Python 文件中，裁判规则写在 `.toml` 文件中。Rewardkit 会从 tests 目录中同时加载两类文件。
+
+```bash title="tests/test.sh"
+#!/bin/bash
+uvx --python '>=3.12,<3.14' --from 'harbor-rewardkit==0.2.*' rewardkit /tests
+```
+
+Rewardkit 会在 `/tests` 中查找判定标准，针对 `/app` 中的工作区运行，并将结果写入 `/logs/verifier/reward.json`：
+
+```json title="/logs/verifier/reward.json"
+{ "reward": 0.75 }
+```
+
+所有默认值都符合 Harbor 的约定。
+
+<Card
+  title="可运行示例"
+  icon="github"
+  href="https://github.com/harbor-framework/harbor/tree/main/examples/tasks/reward-kit-example"
+>
+  一个使用 Rewardkit 的完整 Task，可作为起点。
+</Card>
+
+<Info>
+  希望编程 Agent 帮你使用 Rewardkit 设计 Verifier？请安装 `rewardkit` 技能：
+
+```bash
+npx skills add harbor-framework/harbor --skill rewardkit
+```
+
+</Info>
+
+## 程序化判定 {#programmatic-criteria}
+
+### 内置判定标准 {#built-in-criteria}
+
+Rewardkit 内置了常见基准测试中使用的判定标准。可在 tests 目录中的任意 Python 文件里调用：
+
+```python title="tests/files.py"
+import rewardkit as rk
+
+rk.file_exists("output.txt")
+rk.file_contains("output.txt", "hello")
+rk.command_succeeds("python main.py")
+```
+
+内置判定标准超过 20 种，涵盖文件、命令、JSON、CSV（逗号分隔值格式）、HTTP（超文本传输协议）、图像和 Agent 轨迹。完整列表请参阅[内置判定标准](/rewardkit/built-in-criteria)。
+
+### 自定义判定标准 {#custom-criteria}
+
+如果需要针对 Task 的专用逻辑，可使用 `@criterion` 装饰器定义函数。第一个参数始终为 `workspace: Path`，函数返回值可以是 `bool`、`float` 或包含 `score` 的字典：
+
+```python title="tests/output.py"
+from pathlib import Path
+
+from rewardkit import criterion
+
+
+@criterion
+def has_valid_output(workspace: Path) -> bool:
+    output = (workspace / "output.txt").read_text()
+    return len(output.splitlines()) >= 10
+```
+
+除 `workspace` 外不接受其他参数的判定函数会自动调用。包含额外参数的判定函数必须通过 `rewardkit` 调用：
+
+```python title="tests/output.py"
+from pathlib import Path
+
+import rewardkit as rk
+from rewardkit import criterion
+
+
+@criterion(description="output has at least {n} lines")
+def has_n_lines(workspace: Path, n: int) -> bool:
+    output = (workspace / "output.txt").read_text()
+    return len(output.splitlines()) >= n
+
+
+rk.has_n_lines(10, weight=2.0)
+rk.has_n_lines(50, weight=1.0)
+```
+
+判定函数也可以返回字典。`reasoning`、`confidence` 和 `model` 是可选字段，并会写入 `reward-details.json`：
+
+```python title="tests/output.py"
+@criterion
+def report_is_relevant(workspace: Path) -> dict:
+    probability = classify((workspace / "report.md").read_text())
+    return {
+        "score": probability >= 0.5,
+        "reasoning": "classified as on-topic",
+        "confidence": max(probability, 1 - probability),
+        "model": "relevance-classifier-v1",
+    }
+```
+
+## 裁判判定 {#judge-criteria}
+
+有些内容更适合由 LLM 评分，例如代码质量、边界情况处理或可读性。请在 TOML 文件中定义这些判定标准：
+
+```toml title="tests/quality.toml"
+[judge]
+judge = "anthropic/claude-opus-5-5"
+files = ["/app/main.py"]
+
+[[criterion]]
+description = "Is the code correct?"
+type = "binary"
+
+[[criterion]]
+description = "How readable is the code?"
+type = "likert"
+points = 5
+```
+
+Python 判定文件和裁判 TOML 文件可以放在同一目录中。有关 Agent 裁判、单项评估、MCP（模型上下文协议） 服务器和完整 TOML 参考，请参阅[裁判判定](/rewardkit/judge-criteria)。
+
+裁判需要 API（应用程序接口） 密钥。在 Harbor Task 中，请通过 `task.toml` 中的 `[verifier.env]` 传入：
+
+```toml title="task.toml"
+[verifier]
+timeout_sec = 300.0
+
+[verifier.env]
+ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"
+```
+
+如需在不修改评分标准的情况下切换裁判提供方，请参阅[提供方路由](/rewardkit/judge-criteria#provider-routing)。
+
+## 分数组合方式 {#how-scores-are-combined}
+
+每项判定标准都可以设置可选的 `weight`；默认值为 `1.0`：
+
+```python
+rk.file_exists("output.txt", weight=3.0)
+rk.file_exists("readme.md", weight=1.0)
+```
+
+每个注册了判定标准的 Python 文件都会生成一个分数；每个裁判 TOML 文件也会生成一个分数。分数名称取自文件名（去掉 `.py` 或 `.toml` 后缀）：`files.py` 对应 `files`，`quality.toml` 对应 `quality`。只包含导入或共享判定定义、没有注册任何判定标准的文件会被忽略。
+
+如果 Verifier 文件直接放在 `tests/` 下，它们的分数会以相同权重合并为 `reward`。如需调整任一级别的组合方式，请在判定文件旁添加 `reward.toml`：
+
+```toml title="tests/reward.toml"
+# Require every criterion registered by files.py to pass.
+[scoring.files]
+aggregation = "all-pass"
+
+# Give files.py twice the weight of quality.toml.
+[[reward]]
+name = "reward"
+aggregation = "weighted-mean"
+weights = { files = 2.0, quality = 1.0 }
+```
+
+`[scoring.files]` 用于控制如何组合 `files.py` 中的判定标准。具名 `[[reward]]` 表用于控制如何组合目录中的 `files`、`quality` 和其他分数。只有当 Verifier 文件直接放在 `tests/` 下且未定义该表时，Rewardkit 才会通过加权平均生成 `reward`；裁判所占权重取自其 `[judge]` 段落中的 `weight`。
+
+可用的汇总模式包括 `weighted-mean`、`weighted-sum`、`all-pass`、`any-pass`、`threshold` 和 `required-pass`。只有分数至少为 `1.0` 时，`all-pass`、`any-pass` 和 `required-pass` 才会视为通过；对于程序化判定，`required-pass` 与 `all-pass` 相同。当同一表中的加权平均值达到 `threshold` 时，`threshold` 模式通过（默认阈值为 `0.5`）。`weighted-sum` 会直接计算 `sum(value × weight)`，不做归一化。只有该模式允许负权重，结果也可能超出 `[0, 1]`。裁判 TOML 使用自己的 `[scoring]` 段落组合该裁判内部的判定标准。
+
+## 多奖励 Task {#multi-reward-tasks}
+
+如果你希望分别评估正确性、结构和质量等维度，请将判定标准放入子目录。每个子目录都会生成一个奖励：
+
+```bash
+tests/
+├── test.sh
+├── correctness/
+│   ├── files.py
+│   └── behavior.py
+├── structure/
+│   └── files.py
+└── quality/
+    └── judge.toml
+```
+
+这会生成多个独立分数：
+
+```json title="/logs/verifier/reward.json"
+{ "correctness": 0.75, "structure": 1.0, "quality": 0.6 }
+```
+
+同一维度下的 Python 文件、裁判 TOML 文件和子目录会以相同权重组合。在维度目录中添加 `reward.toml` 可更改此行为：
+
+```toml title="tests/correctness/reward.toml"
+[[reward]]
+aggregation = "weighted-mean"
+weights = { files = 2.0, behavior = 1.0 }
+```
+
+Python 文件和裁判 TOML 文件按文件名（不含后缀）引用，子目录按目录名引用。未列入 `weights` 的输入会保留自身权重。不要设置 `name`，因为分数名称由目录名决定。
+
+直接放在 `tests/` 下、与维度目录并列的 Python 文件和裁判 TOML 文件会生成顶层分数，名称取自文件名（不含后缀）。仅定义共享判定标准的文件不会生成分数，详见下文。
+
+### 嵌套分组 {#nested-groups}
+
+可以嵌套子目录，在一个维度中对相关判定标准分组：
+
+```bash
+tests/
+└── correctness/
+    ├── reward.toml
+    ├── files.py
+    └── behavior/
+        ├── runtime.py
+        └── edge_cases.py
+```
+
+`behavior/` 会将其中的判定标准合并为内部的 `behavior` 分数。上级目录可以通过目录名引用该分数：
+
+```toml title="tests/correctness/reward.toml"
+[[reward]]
+weights = { files = 1.0, behavior = 2.0 }
+```
+
+`behavior/` 中的权重不会影响上级目录。每个目录只会向上级提供一个分数。
+
+如需在现有维度分数之外生成一个主奖励，请在根目录的 `tests/reward.toml` 中创建包含具名 `[[reward]]` 表的配置：
+
+```toml title="tests/reward.toml"
+[[reward]]
+name = "reward"
+aggregation = "weighted-mean"
+weights = { correctness = 2.0, structure = 1.0, quality = 1.0 }
+```
+
+```json title="/logs/verifier/reward.json"
+{
+  "correctness": 0.75,
+  "structure": 1.0,
+  "quality": 0.6,
+  "reward": 0.775
+}
+```
+
+维度分数仍会保留在输出中。未定义根级汇总时，多奖励 Task 不会隐式生成 `reward`。Harbor 会将 `reward` 键作为 Task 的主分数。其他具名 `[[reward]]` 表可以添加额外汇总分数；名称不能与维度名称冲突。
+
+如需在多个维度间复用自定义判定标准，请在 tests 根目录中使用 `shared=True` 定义：
+
+```python title="tests/shared.py"
+from pathlib import Path
+
+from rewardkit import criterion
+
+
+@criterion(shared=True)
+def word_count_correct(workspace: Path) -> float:
+    # Criterion logic ...
+    return score
+```
+
+```python title="tests/correctness/behavior.py"
+import rewardkit as rk
+
+rk.word_count_correct(weight=3.0)
+```
+
+## 隔离运行 {#isolation}
+
+有些判定标准会运行并修改工作区的命令。为防止一项判定影响其他判定，请在隔离环境中运行。Rewardkit 会使用 overlayfs 将工作区以只读方式挂载，并在运行结束后丢弃该判定造成的更改。
+
+程序化判定可通过 `isolated=True` 启用隔离：
+
+```python
+rk.command_succeeds("python main.py", isolated=True)
+```
+
+对于 Agent 裁判，请在 `[judge]` 段落中设置 `isolated = true`：
+
+```toml
+[judge]
+judge = "claude-code"
+isolated = true
+```
+
+Agent 裁判会共用工作区。因此，如果一个 Task 会运行多个 Agent（多个 Agent 裁判、多个样本，或包含多个判定标准的 individual 模式），除非每个 Agent 裁判都设置 `isolated = true`，否则 Rewardkit 会报错。
+
+### 在 Harbor Task 中隔离 {#isolation-in-a-harbor-task}
+
+挂载文件系统所需权限高于默认容器提供的权限。请将这些权限授予[独立 Verifier 环境](/tasks/separate-verifier)，不要授予 Agent 环境。Verifier 镜像需要安装 `fuse-overlayfs`：
+
+```dockerfile title="tests/Dockerfile"
+FROM ubuntu:24.04
+
+RUN apt-get update \
+    && apt-get install -y fuse-overlayfs \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+COPY . /tests/
+```
+
+通过 Compose 文件可让 Verifier 容器挂载文件系统：
+
+```yaml title="tests/docker-compose.yaml"
+services:
+  main:
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse
+    security_opt:
+      - apparmor:unconfined
+```
+
+`task.toml` 用于启用独立 Verifier，并将需要评分的文件列为工件：
+
+```toml title="task.toml"
+artifacts = ["/app/main.py"]
+
+[verifier]
+environment_mode = "separate"
+```
+
+该配置适用于 Docker（容器平台） 环境。其他 Sandbox（沙箱） 提供方对挂载的支持各不相同。
+
+## 运行提交的代码 {#running-submitted-code}
+
+如果判定标准在 Verifier 进程中运行 Agent 提交的代码，Agent 可能会通过作弊而非解决 Task。提交代码可能写入奖励文件、修改评分器、读取预期答案，或留下后台进程稍后作弊。
+
+`Worker` 会以单独的非特权用户身份运行提交内容，并且只返回程序打印的内容。预期答案和比较逻辑仍由你的判定函数负责：
+
+```python title="tests/check.py"
+import json
+from pathlib import Path
+
+from rewardkit import Worker, WorkerError, criterion
+
+
+@criterion
+def correct_sums(workspace: Path) -> bool:
+    rows = [[1, 2], [], [-3, 1]]
+    try:
+        result = Worker().run(
+            "python3 solution.py",
+            files=[workspace / "solution.py"],
+            stdin=json.dumps(rows).encode(),
+        )
+    except WorkerError:  # timed out, or solution.py could not be copied in
+        return False
+    try:
+        observed = json.loads(result.stdout)
+    except ValueError:
+        return False
+    return result.returncode == 0 and observed == [sum(row) for row in rows]
+```
+
+`run` 接受一个 Shell 脚本、要复制到脚本旁边的提交文件以及标准输入。它会返回退出状态、标准输出、标准错误末尾内容，以及你在 `outputs` 中列出的文件。请根据提交内容调整脚本：使用 `python3 -c` 调用函数、先构建项目，或复制你编写的驱动程序。
+
+每次调用都会使用全新的 UID，且不关联任何账户。该用户无法读取 `/tests` 或写入 `/logs/verifier`，并且启动的所有进程都会在 `run` 返回前终止。
+
+将结果视为数据。非零退出状态会被返回，不会抛出异常。超时会抛出 `WorkerError`，你应将其计为失败。如果无法建立隔离边界，`run` 会抛出 `WorkerSetupError`；应让异常继续传递，以免写入奖励。
+
+### 在 Harbor Task 中使用 Worker {#worker-in-a-harbor-task}
+
+Worker 需要在临时 Linux（操作系统内核及相关系统） Verifier 容器中以 root 运行，因此请使用[独立 Verifier 环境](/tasks/separate-verifier)，并保持 Verifier 用户未设置。在 Verifier 镜像中全局安装 Rewardkit：Worker 会通过 Rewardkit 的解释器启动，而 `uvx` 会将它安装到 `/root` 下。
+
+```dockerfile title="tests/Dockerfile"
+FROM python:3.12-slim
+
+RUN pip install --no-cache-dir 'harbor-rewardkit>=0.2.4'
+COPY . /tests/
+```
+
+```bash title="tests/test.sh"
+#!/bin/sh
+exec python -m rewardkit /tests
+```
+
+```toml title="task.toml"
+artifacts = ["/app/solution.py"]
+
+[verifier]
+environment_mode = "separate"
+```
+
+Worker 保护的是奖励结果，而非机器本身。请使用 Task 的网络模式和容器资源限制，控制提交代码的行为范围。Docker Desktop 会忽略绑定挂载的权限位，因此请在 Linux Docker 引擎或云 Sandbox 上运行这些 Task。
+
+<Card
+  title="可运行示例"
+  icon="github"
+  href="https://github.com/harbor-framework/harbor/tree/main/examples/tasks/secure-python-worker"
+>
+  一个通过 Worker 进行评分的完整 Task。
+</Card>
+
+## 输出 {#output}
+
+Rewardkit 会在同一目录中写入两个文件：
+
+- `reward.json`：奖励分数
+- `reward-details.json`：每项判定分数、裁判推理、错误和警告
+
+`harbor view` 会在 **Verifier Logs → Rewards** 下以可折叠树状结构显示详细信息。Agent 裁判的详细信息还包含归一化的令牌 `usage`、复制后的原生 JSONL（逐行 JSON 格式） `judge_logs` 路径，以及 Codex（OpenAI 编程智能体） 尝试失败时包含标准输出和标准错误的文本日志。
+
+## 对比 Verifier {#comparing-verifiers}
+
+传入多个测试目录，可并排比较不同 Verifier 设计：
+
+```bash
+rewardkit /tests/v1 /tests/v2
+```
+
+Rewardkit 会分别运行每个目录，打印匹配奖励名称的对比表，并将 `v1/correctness` 和 `v2/correctness` 等带命名空间的键写入 `reward.json`。
+
+## CLI（命令行界面） {#cli}
+
+```bash
+rewardkit <tests_dirs...> \
+    --workspace /app \
+    --output /logs/verifier/reward.json \
+    --max-concurrent-programmatic 8 \
+    --max-concurrent-llm 8 \
+    --max-concurrent-agent 2
+```
+
+所有标志均为可选项。传入多个测试目录时，每个目录都会独立运行，并输出对比结果。
+
+## Python API {#python-api}
+
+```python
+import rewardkit as rk
+
+# Run and get scores
+scores = rk.run("/tests", workspace="/app")
+
+# Inspect discovered rewards without running them
+rewards = rk.discover("/tests", workspace="/app")
+```

@@ -1,0 +1,139 @@
+---
+title: "ASP（智能体沙箱协议）"
+description: "Agent（智能体） Sandbox（沙箱） Protocol（智能体沙箱协议）：通过 SSH（安全远程连接协议） 在远程沙箱中运行任意智能体框架的工具。"
+---
+
+<Warning>
+  本页是 RFC 草案。欢迎在以下 PR 中提出意见：
+  [PR #3023](https://github.com/harbor-framework/harbor/pull/3023).
+</Warning>
+
+![ASP 是托管智能体架构中智能体框架与沙箱之间的连接层](/images/asp-managed-agents-edge.png)
+
+最初由 [@alexgshaw](https://github.com/alexgshaw) 提出并共同设计。
+## 概要 {#tl%3Bdr}
+
+- ASP 允许任意智能体框架通过 .asp.json 在远程沙箱中执行工具；**SSH** 是首个传输方式，因为它已具备命令执行、文件传输和身份验证能力，且沙箱都可以提供这些能力。
+- 实现 ASP 的智能体**不会意识到**自己正在远程机器上运行：其所有工具都在沙箱中执行，因此沙箱是它唯一能够观察到的环境。
+- 智能体工具分为两层：面向模型的策略层（架构、截断、分页）和负责原始 I/O 的机制层。ASP 只将机制层从本地 I/O 切换为网络 I/O，策略层保持不变。
+- 现有智能体要支持 ASP，只需增加两项功能：检测 `.asp.json`，并将工具的原始 I/O（读取、写入、执行）通过已配置的传输方式路由到远端，而非本机。
+  ![ASP 架构简图](/images/asp-architecture-terse-labels.svg)
+
+## 目标 {#goal}
+
+*让大脑与双手解耦！* 标准化智能体框架（**大脑**：智能体循环、LLM 调用、凭据）与工具运行沙箱（**双手**：文件系统、Shell）之间的接口。任何框架都应能通过单个声明式配置文件和标准传输方式驱动任意沙箱，且框架中无需集成提供方 SDK（软件开发工具包）。
+
+## 背景 {#background}
+
+编程智能体已十分普遍，非编程智能体也越来越依赖执行环境。然而，大多数智能体仍在**执行代码的同一环境**中运行。在低信任或云端场景中，两者最好**分离**，正如以下文章所述：
+[Vercel 关于智能体架构安全边界的文章](https://vercel.com/blog/security-boundaries-in-agentic-architectures):
+凭据和主机信息不会暴露给智能体；智能体无法耗尽内存或终止自身运行时；基础设施可以分别配置，例如关闭沙箱的互联网访问，同时保持运行时联网。
+
+![当前架构](/images/asp-current.png)
+
+目前只有智能体自身的开发者可以通过重写执行工具、将其路由到沙箱来实现这种分离。基于现有智能体（Claude Code（Anthropic 编程智能体）、Codex（OpenAI 编程智能体）、pi）构建的用户只能继承其工具，无法解耦。共享环境会损害可复现性，沙箱的互联网访问也是奖励作弊的重要渠道；但智能体在沙箱内部运行时无法切断网络，因此开发者只能退而使用脆弱的模型端点允许列表。
+
+[Anthropic（模型服务提供商） 的托管智能体](https://www.anthropic.com/engineering/managed-agents)将智能体系统拆分为会话、编排、框架、沙箱、资源和工具，并通过在沙箱内安装环境工作进程实现分离；这种方式会将沙箱与该框架绑定。提供方 SDK 集成则相反，会将框架绑定到单一提供方。
+
+另一方面，[SSH](https://en.wikipedia.org/wiki/Secure_Shell) 已实现缺失接口所需的基本能力：运行命令、通过 SFTP 传输文件，并处理身份验证和主机验证。许多沙箱提供方已经可以通过 SSH 访问，或可以配置为支持 SSH。当前缺少的是一种通用约定，用于告知框架远程运行工具并描述连接方式。**ASP 提供了这一约定。**
+
+
+## 范围 {#scope}
+
+对照托管智能体的组件表，ASP 的**适用范围有意保持狭窄**。它只标准化框架到沙箱这一连接层，而且在该组件接口中仅定义 `execute(name, input) -> String`。
+
+`provision({resources})` 部分明确**不在范围内**。资源配置属于编排器的工作（例如 [harbor](https://github.com/harbor-framework/harbor)），应由 [daytona_setup.py](https://github.com/kobe0938/harbor/blob/asp/asp/daytona_setup.py) 和 [docker_setup.py](https://github.com/kobe0938/harbor/blob/asp/asp/docker_setup.py) 等工具在智能体启动前完成。智能体不得在运行时自行配置资源。会话、编排、资源和工具定义仍由框架按现有方式处理。
+
+![在沙箱接口中，ASP 采用 execute 并排除 provision](/images/asp-managed-agents-interface.png)
+
+*ASP 采用 execute，并有意排除 provision。*
+
+## 契约：.asp.json {#the-contract%3A-asp-json}
+
+完整定义请参阅
+[asp.schema.json](https://github.com/kobe0938/harbor/blob/asp/asp/asp.schema.json)。
+示例：
+[daytona](https://github.com/kobe0938/harbor/blob/asp/asp/examples/daytona/.asp.json) 和
+[docker](https://github.com/kobe0938/harbor/blob/asp/asp/examples/docker/.asp.json)。
+
+| 字段 | 含义 |
+| --- | --- |
+| `version` | `"0"` |
+| `transport` | `"ssh"`（首个受支持的传输方式；保留此字段以便日后扩展） |
+| `connection.host`、`.port`、`.user` | SSH 端点；提供方可能会将访问令牌编码为用户名 |
+| `connection.identity` | 客户端私钥，可指定环境变量名称或文件路径；令牌身份验证足够时可省略 |
+| `connection.host_key` | 固定的服务器公钥；省略时表示首次使用时信任 |
+| `workspace` | 沙箱中的绝对路径，工具的相对路径以此为基准解析 |
+
+框架在工作目录及其父目录中找到 `.asp.json` 后，会将工具 I/O 绑定到沙箱。工具调用是**无状态的**：每条命令使用全新的 Shell，但文件系统会持续保留。
+
+智能体对此**并不知情**。它不会获知传输方式，即使知道也无法利用：所有工具都在远程执行，因此智能体没有可访问框架主机的操作，也无法检查框架所在环境。它唯一能观察到的环境就是沙箱本身。该边界由能力限制强制执行，而非依赖策略或提示词。
+
+### 架构 {#architecture}
+
+智能体工具分为两层。
+
+策略层面向模型，包括工具架构（路径、偏移量、限制）、截断限制和分页。
+
+机制层位于下方，由少量原始 I/O 函数组成（读取、写入、执行）。
+
+ASP 只替换机制层：本地 I/O 改为通过传输方式执行相同操作；策略层仍在框架中原样运行，因此模型看到的工具行为保持一致，现有提示词和评测也可继续使用。
+![ASP 架构图](/images/asp-diagram.png)
+
+## 两个智能体 ASP 示例 {#two-agent-asp-examples}
+
+- 使用 asyncssh SDK 的[基础 Python（编程语言） 智能体](https://github.com/kobe0938/harbor/blob/asp/asp/agent.py)
+- 为名为 [pi](https://github.com/earendil-works/pi) 的轻量框架编写的[扩展](https://github.com/kobe0938/harbor/blob/asp/asp/pi-asp.ts)
+
+![轻量 Python 智能体通过 ASP 在 Daytona（云沙箱平台） 沙箱中运行任务](/images/asp-agent-run.png)
+
+*基础智能体通过 ASP 在 Daytona 中运行*
+
+
+## 互联网访问配置 {#internet-configurability}
+
+ASP 可以与关闭互联网访问的沙箱良好配合。SSH 作为入口连接：有状态防火墙允许框架发起的连接返回响应，同时丢弃沙箱主动建立的所有连接。因此，即使完全禁用出站网络，工具仍能正常工作（已在 Daytona 和 Docker（容器平台） 上验证）。
+
+## 后续计划 {#future-steps}
+
+我们计划近期添加 terminus-slim，即基于 ASP 的 [Terminus（Harbor 内置智能体）](https://github.com/harbor-framework/terminal-bench-1/blob/main/terminal_bench/agents/terminus_1.py) 版本。ASP v0 首先支持 SSH，之后可以支持 stdio 和 HTTP（超文本传输协议） 等传输方式。未来，更具约束力的版本可以定义与传输无关的操作和类型，以便**生成 SDK**。
+
+这是 v0 草案，因此包括架构在内的所有内容都**可能在 v0.1 或 v1 中变更**。**欢迎提出意见！**
+
+## 附录：支持矩阵 {#appendix-for-support-matrix}
+
+SSH 软件开发工具包（SDK）
+
+| 语言 | 库 | 说明 | 是否在此 MVP 中验证 |
+| --- | --- | --- | --- |
+| Python | [asyncssh](https://github.com/ronf/asyncssh) | 异步，SFTP 支持简洁 | [是](https://github.com/kobe0938/harbor/blob/asp/asp/agent.py) |
+| Python | [paramiko](https://github.com/paramiko/paramiko) | 同步，成熟 | 否 |
+| TypeScript（带类型的 JavaScript） | [ssh2](https://github.com/mscdex/ssh2) | 标准 Node 库；[ssh2-sftp-client](https://github.com/theophilusx/ssh2-sftp-client) 添加基于 Promise 的 SFTP | 否 |
+| TypeScript | [node-ssh](https://github.com/steelbrain/node-ssh) | ssh2 的 Promise 封装 | 否 |
+| Go | [ssh](https://pkg.go.dev/golang.org/x/crypto/ssh) | 官方扩展标准库 | 否 |
+| Rust | [russh](https://github.com/Eugeny/russh) | 异步（tokio），包含 SFTP | 否 |
+| 任意语言 | [OpenSSH client](https://www.openssh.com/) | 无依赖；支持 ControlMaster 多路复用 | [是](https://github.com/kobe0938/harbor/blob/asp/asp/pi-asp.ts) |
+
+沙箱提供方
+
+| 提供方 | 说明 | 是否在此 MVP 中验证 |
+| --- | --- | --- |
+| Docker | 容器中的 sshd，已发布端口 | [是](https://github.com/kobe0938/harbor/blob/asp/asp/examples/docker/.asp.json)，包括出站流量阻止 |
+| Apple Container | 容器中的 sshd，可路由的 VM（虚拟机） IP | 是 |
+| Daytona | 托管网关，将令牌用作用户名 | [是](https://github.com/kobe0938/harbor/blob/asp/asp/examples/daytona/.asp.json)，包括 SFTP 和 `network_block_all` |
+| E2B（云沙箱平台） | 有文档说明；通过 WSS 上的 websocat ProxyCommand 和自定义模板实现 | 否；需要 `proxyCommand` 字段 |
+| Modal（云计算与沙箱平台） | 没有原生 SSH 端点；通过 sshd 和 Modal 隧道应可实现 | 否 |
+| GKE（Google 托管 Kubernetes 服务） | 没有原生 SSH 端点；通过 Pod 中的 sshd 和端口转发实现 | 否 |
+
+## 参考资料 {#references}
+
+- [https://www.daytona.io/docs/en/guides/claude/claude-managed-agents/](https://www.daytona.io/docs/en/guides/claude/claude-managed-agents/)
+- [https://www.daytona.io/docs/en/guides/pi/pi-extension/](https://www.daytona.io/docs/en/guides/pi/pi-extension/)
+- [https://www.anthropic.com/engineering/managed-agents](https://www.anthropic.com/engineering/managed-agents)
+- [https://platform.claude.com/docs/en/managed-agents/self-hosted-sandboxes#how-it-differs-from-cloud-environments](https://platform.claude.com/docs/en/managed-agents/self-hosted-sandboxes#how-it-differs-from-cloud-environments)
+- [https://agentclientprotocol.com/protocol/v1/terminals#checking-support](https://agentclientprotocol.com/protocol/v1/terminals#checking-support)
+- [https://modelcontextprotocol.io/examples](https://modelcontextprotocol.io/examples)
+- [https://github.com/daytona/integrations/blob/main/packages/pi-extension/src/ops.ts](https://github.com/daytona/integrations/blob/main/packages/pi-extension/src/ops.ts)
+- [https://opencode.ai/docs/tools/](https://opencode.ai/docs/tools/)
+- [https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/extensions/ssh.ts](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/extensions/ssh.ts)
+- [https://vercel.com/blog/security-boundaries-in-agentic-architectures](https://vercel.com/blog/security-boundaries-in-agentic-architectures)
