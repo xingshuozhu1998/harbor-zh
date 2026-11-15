@@ -1,0 +1,69 @@
+---
+title: "重新评分"
+description: "使用更新后的验证器检查已记录的输出，无需重新运行智能体。"
+---
+
+<Note>
+  如果只有验证器发生变化，且任务使用独立验证器，建议重新评分。此过程不会重新运行智能体阶段。
+</Note>
+
+## 重新评定作业 {#regrade-a-job}
+
+```bash
+harbor job regrade "jobs/<job>" -p path/to/updated-task -e modal
+```
+
+`-p` 接受任务目录或包含多个任务的目录。Harbor（智能体评测框架）会按任务名称将任务与源 Trial（单次运行）匹配。重复使用 `-p` 可指定多个位置。
+
+## 重新评定单次运行 {#regrade-a-trial}
+
+```bash
+harbor trial regrade "jobs/<job>/<trial>" -p path/to/updated-task -e modal
+```
+
+更新后的任务必须与源 Trial 中的任务同名。
+
+## 从 Harbor Hub（任务与结果共享平台） 重新评分 {#regrade-from-harbor-hub}
+
+使用 Hub 作业或 Trial 的 UUID 代替本地路径。
+
+```bash
+harbor job regrade deeac1d1-9588-422f-8d8a-d504ec9fae14 -p path/to/updated-task
+harbor trial regrade 8f3c2a9e-1b4d-4c6f-9e2a-7d5b8c1f0a3e -p path/to/updated-task
+```
+
+## 要求 {#requirements}
+
+- 源对象必须是已完成的 Trial，且包含可读取的 `result.json` 和
+  `artifacts/manifest.json` files.
+- 更新后的任务必须使用[独立验证器](/tasks/separate-verifier)。
+- 更新后的验证器所需的每个产物都必须由源 Trial 收集，且仍然存在。
+
+源任务使用独立验证器是良好做法，因为它本来就根据已记录的产物评分。但这并非必需：只要共享验证器的源任务记录了更新后验证器所需的全部输入，也可以使用。多步骤 Trial 会逐步重新评分，且其步骤必须与更新后的任务保持一致。
+
+旧版产物清单不会记录排除过滤器。如果更新后的任务声明了排除项，Harbor 会发出警告并继续重新评定这些记录。若显式记录的过滤器发生变化，则仍无法重新评分。
+
+## 工作方式 {#how-it-works}
+
+对于每个源 Trial，Harbor 会：
+
+1. 将已记录的输出复制到新的 Trial 中。
+2. 构建更新后的验证器环境。
+3. 执行验证并写入新结果。
+
+整个过程不会启动智能体环境，因此重新评分不需要智能体凭据，也不会产生新的智能体费用。
+
+## 选项 {#options}
+
+| 参数 | 说明 |
+| --- | --- |
+| `-p, --task-path` | 本地验证器任务。用于作业时可重复指定。 |
+| `-t, --task` | 注册表中的验证器任务。用于作业时可重复指定。 |
+| `-d, --dataset` | 包含验证器任务的数据集。用于作业时可重复指定。 |
+| `-e, --env` | 验证器环境提供方。默认为 `docker`。 |
+| `--ve, --verifier-env` | 验证器环境变量。可重复指定。 |
+| `--verifier` | 自定义验证器导入路径。 |
+| `--verifier-kwarg` | 自定义验证器参数。可重复指定。 |
+| `-o` | 输出父目录。 |
+
+作业重新评分还支持 `-n, --n-concurrent` 和 `--job-name`。Trial 重新评分支持 `--trial-name`。

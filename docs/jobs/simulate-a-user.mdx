@@ -1,0 +1,75 @@
+---
+title: "模拟用户"
+description: "通过与模拟用户进行多轮对话来评测智能体。"
+---
+
+模拟用户 Trial（单次运行）会将用户智能体与待测目标智能体配对。用户智能体会收到任务指令，目标智能体启动时不会收到指令，而是在对话中逐步了解任务。随后 Harbor（智能体评测框架）会运行验证器。
+
+<Frame caption="模拟用户架构图">
+  <img
+    src="/images/acp-simulated-user.png"
+    alt="用户智能体通过 acpx 向目标智能体发送提示词，双方共用任务工作区的示意图"
+  />
+</Frame>
+
+
+## 示例 {#examples}
+
+### Hello world（入门示例） {#hello-world}
+
+```bash
+harbor run \
+  -t hello-world/hello-world \
+  --agent claude-code --model anthropic/claude-sonnet-5 \
+  --user-agent claude-code --user-model anthropic/claude-sonnet-5 \
+  --bridge acp
+```
+
+### [SWE-Interact](https://arxiv.org/pdf/2606.30573) 示例 {#one-example-from-swe-interact}
+
+```bash
+harbor run \
+  -p examples/tasks/deepswe_tomlkit-toml-table-converters \
+  --agent claude-code --model anthropic/claude-sonnet-5 \
+  --user-agent claude-code --user-model anthropic/claude-sonnet-5 \
+  --user-persona-path examples/tasks/deepswe_tomlkit-toml-table-converters/persona.md \
+  --bridge acp
+```
+
+<Note>
+  模拟用户 Trial 可能运行较长时间。此示例大约需要 50 分钟。
+</Note>
+
+
+<Frame caption="查看器中的模拟用户">
+  <video
+    controls
+    preload="metadata"
+    className="w-full rounded-xl"
+    src="/videos/simulated-user-demo.mp4"
+  >
+    你的浏览器不支持嵌入式视频。
+  </video>
+</Frame>
+
+## Bridge（桥接） {#bridge}
+
+`--bridge acp` 会在任务环境中安装 [acpx](https://github.com/openclaw/acpx)，并将用户智能体连接到目标智能体。用户会通过 `acpx prompt` 发送每条消息。
+
+ACP（智能体客户端协议） 桥接支持将 `claude-code`、`gemini-cli`、`codex`、`opencode` 和 `opencode-v2` 用作**目标智能体**。其他 [ACP Registry 智能体](https://agentclientprotocol.com/get-started/registry)尚未接入 Harbor。**用户智能体**可以是 Harbor 支持的**任意**智能体。
+
+<Note>
+  `opencode` 和 `opencode-v2` 在普通运行中支持 `reasoning_effort`（别名为 `variant`），但作为 ACP 目标智能体时不接受此选项。
+</Note>
+
+## 用户提示词 {#user-prompt}
+
+Harbor 按以下[顺序](https://github.com/harbor-framework/harbor/blob/main/src/harbor/trial/simulated_user.py#L19-L24)构建用户智能体的提示词：
+
+| 部分 | 默认值 | 覆盖方式 |
+| --- | --- | --- |
+| Persona | [Default persona](https://github.com/harbor-framework/harbor/blob/main/src/harbor/trial/simulated_user.py#L14-L17) | `--user-persona-path` |
+| Bridge instructions | [Default ACP instructions](https://github.com/harbor-framework/harbor/blob/main/src/harbor/bridges/acp.py#L26-L38) | `--bridge-prompt-path` |
+| Task（任务） instruction | `instruction.md` | — |
+
+`--user-prompt-template-path` 可使用 Jinja2 模板替换此结构。模板必须包含 `{{ bridge_instructions }}` 和 `{{ instruction }}`；`{{ persona }}` 为可选项。

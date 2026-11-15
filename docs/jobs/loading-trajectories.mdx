@@ -1,0 +1,89 @@
+---
+title: "加载轨迹"
+description: "将先前的轨迹加载到 Agent（智能体） 会话中。"
+---
+
+| 级别 | 配置 | 格式 | Agent |
+| --- | --- | --- | --- |
+| Task（任务） | 指令目录中的 `trajectory.json` | ATIF（智能体轨迹交换格式） | `claude-code`、`codex` |
+| 运行（Job（任务运行集合） 或 Trial（单次运行）） | `--load-trajectory` 或 `agents[].load_trajectory` | ATIF、原生格式 | `claude-code`、`codex` |
+
+## Task 级别加载 {#task-level-loading}
+
+### ATIF 轨迹 {#atif-trajectories}
+
+将名为 `trajectory.json` 的 ATIF 文件放在与 `instruction.md` 相同的目录中。对于多步骤 Task，将文件放在第一步的目录中。
+如果 Agent 支持加载 ATIF，Harbor（智能体评测框架） 就会加载该文件。
+
+[Task 级别 ATIF 示例](https://github.com/harbor-framework/harbor/tree/main/examples/tasks/hello-load-atif-trajectory-task-level)
+
+```bash
+harbor run \
+  -p examples/tasks/hello-load-atif-trajectory-task-level \
+  -a codex -m openai/gpt-5.6-sol -e daytona
+```
+
+## 运行级别加载 {#run-level-loading}
+
+运行级别加载会覆盖 Task 级别加载。
+
+`.json` 文件会按 ATIF 格式处理。其他后缀会使用 Agent 的原生加载器。`claude-code` 和 `codex` 的原生加载器要求文件使用 `.jsonl` 后缀，并会校验文件名。
+
+`load_trajectory` 不能与模拟的 `user_agent` 同时使用。
+
+### 原生轨迹 {#native-trajectories}
+
+原生轨迹是特定于 Agent 的 `.jsonl` 会话文件。加载原生轨迹不会丢失信息，且必须使用相同的 Agent。Harbor 将这些文件存储在 `agent/sessions/` 下：
+
+[运行级别原生轨迹示例](https://github.com/harbor-framework/harbor/tree/main/examples/tasks/hello-load-native-trajectory)
+
+```bash
+harbor run \
+  -p examples/tasks/hello-load-native-trajectory \
+  -a claude-code -m opus -e daytona \
+  --load-trajectory examples/tasks/hello-load-native-trajectory/environment/d7d4e19e-608d-44ef-b166-cd050ef274ba.jsonl
+```
+
+| Agent | 原生轨迹文件 |
+| --- | --- |
+| `claude-code` | `agent/sessions/projects/-app/<session-id>.jsonl` |
+| `codex` | `agent/sessions/<YYYY>/<MM>/<DD>/rollout-*.jsonl` |
+
+移动文件时请保留文件名；Agent 会用它识别会话。
+
+### ATIF 轨迹 {#atif-trajectories-1}
+
+Harbor 会将 [ATIF](/agents/atif) 输出存储在 `agent/trajectory.json`。ATIF 具有可移植性：Harbor 会将其转换为加载目标 Agent 的原生格式，因此一个 Agent 的轨迹可以用来初始化另一个 Agent。
+
+[运行级别 ATIF 示例](https://github.com/harbor-framework/harbor/tree/main/examples/tasks/hello-load-atif-trajectory-run-level)
+
+```bash
+harbor run \
+  -p examples/tasks/hello-load-atif-trajectory-run-level \
+  -a codex -m openai/gpt-5.6-sol -e daytona \
+  --load-trajectory examples/tasks/hello-load-atif-trajectory-run-level/environment/trajectory.json
+```
+
+转换过程会保留支持的消息、工具调用和工具结果，但可能省略 Agent 特有的细节、系统消息和非文本内容。
+
+Agent 会通过 `capabilities.load_native_trajectory` 和 `capabilities.load_atif_trajectory` 声明各格式的支持情况。
+不支持的格式、缺失文件、无效 ATIF 和无效原生文件名都会在启动前报错。无效的原生文件内容可能会在恢复过程中报错。
+
+上面的示例使用 CLI（命令行界面）。也可以改用 Job 配置文件：
+
+```json
+{
+  "agents": [
+    {
+      "name": "codex",
+      "load_trajectory": "path/to/trajectory.json"
+    }
+  ]
+}
+```
+
+## 恢复的内容 {#what-is-restored}
+
+加载原生轨迹会恢复原生会话。加载 ATIF 轨迹会恢复可移植的对话内容。两者都不会恢复 Sandbox（沙箱） 文件。
+
+对于[多步骤 Task](/tasks/multi-step)，轨迹会在第一步之前加载。启用 `--resume-trajectory` 时，会话顺序为 `(load, resume, resume, ...)`；否则为 `(load, fresh, fresh, ...)`。

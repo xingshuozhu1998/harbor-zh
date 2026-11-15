@@ -1,0 +1,184 @@
+---
+title: "运行作业"
+description: "在 Harbor（智能体评测框架） 中运行作业。"
+---
+
+Job（作业）由多个 Trial（单次运行）组成。每个 Trial 是智能体尝试完成一项 Task（任务）的一次运行。在 Harbor（智能体评测框架）中，使用 `harbor run` 命令运行 Job。
+
+<Tabs>
+  <Tab title="本地数据集">
+    ```bash
+    harbor run -p "<path/to/dataset>" -a "<agent>" -m "<model>"
+    ```
+  </Tab>
+
+  <Tab title="本地任务">
+    ```bash
+    harbor run -p "<path/to/task>" -a "<agent>" -m "<model>"
+    ```
+  </Tab>
+
+  <Tab title="Hub 数据集">
+    ```bash
+    harbor run -d "<org/dataset>@<ref>" -a "<agent>" -m "<model>"
+    ```
+  </Tab>
+
+  <Tab title="Hub 任务">
+    ```bash
+    harbor run -t "<org/task>@<ref>" -a "<agent>" -m "<model>"
+    ```
+  </Tab>
+
+  <Tab title="自定义注册表">
+    ```bash
+    harbor run -d "<dataset>@<version>" \
+      --registry-path "<path/to/registry.json>" \
+      -a "<agent>" -m "<model>"
+    ```
+
+    ```bash
+    harbor run -d "<dataset>@<version>" \
+      --registry-url "<url/to/registry.json>" \
+      -a "<agent>" -m "<model>"
+    ```
+
+    请参阅[注册表](/datasets/registries)。
+  </Tab>
+
+  <Tab title="Git 仓库">
+    ```bash
+    harbor run --repo "<org/repo-name>" -p "<path/to/tasks>" \
+      -a "<agent>" -m "<model>"
+    ```
+
+    请参阅 [Git（版本控制工具） 仓库](/datasets/git-repos)。
+  </Tab>
+</Tabs>
+
+## 配置作业 {#configuring-a-job}
+
+Harbor 提供用于配置作业的 CLI（命令行界面） 参数。
+
+<Tabs>
+  <Tab title="输出">
+    ```bash
+    harbor run -p "<path>" -a "<agent>" -m "<model>" \
+      -o "<jobs-dir>" --job-name "<job-name>"
+    ```
+  </Tab>
+
+  <Tab title="并发和重试">
+    ```bash
+    harbor run -p "<path>" -a "<agent>" -m "<model>" \
+      -n "<concurrent>" -k "<attempts>" -r "<retries>"
+    ```
+  </Tab>
+
+  <Tab title="任务筛选器">
+    ```bash
+    harbor run -p "<path>" -a "<agent>" -m "<model>" \
+      -l "<max-tasks>" -i "<some-*-glob-pattern>" -x "<some-name>"
+    ```
+  </Tab>
+
+  <Tab title="沙箱">
+    ```bash
+    harbor run -p "<path>" -a "<agent>" -m "<model>" \
+      -e "<sandbox>" --allow-agent-host "<host>" --override-memory-mb "<memory-mb>"
+    ```
+
+    请参阅[预集成沙箱](/sandboxes/pre-integrated-sandboxes)、[资源](/tasks/resources)和[网络策略](/tasks/network-policies)。
+  </Tab>
+
+  <Tab title="模拟用户">
+    ```bash
+    harbor run -p "<path>" -a "<agent>" -m "<model>" \
+      --user-agent "<user-agent>" --user-model "<user-model>"
+    ```
+
+    请参阅[模拟用户](/jobs/simulate-a-user)。
+  </Tab>
+</Tabs>
+
+运行 `harbor run --help` 查看所有可用参数。
+
+## 智能体 {#agents}
+
+Harbor 提供预集成智能体，也支持自定义智能体。
+
+运行 `harbor run --help` 查看可用智能体。
+
+使用 `--effort` 设置推理力度，使用 `--ak` 设置其他智能体选项，使用 `--model`（`-m`）设置模型。
+
+如何查询 LiteLLM（统一模型调用库） 对模型名称的解析结果，请参阅[模型名称解析](/agents/agent-auth-resolution#model-name-parsing)。
+
+```bash
+harbor run -a "<agent>" -m "<model>" --effort high
+```
+
+更多信息请参阅[预集成智能体](/agents/pre-integrated-agents)或[自定义智能体](/agents/custom-agents)。
+
+## 配置文件 {#config-files}
+
+在内部，使用 CLI 参数配置作业会构建一个 `JobConfig` 对象，并将其传给运行器。
+
+运行 `harbor run` 时添加 `--print-config` 参数即可查看配置；也可以在运行 `harbor run` 后检查 `<job/path>/config.json` 文件。你还可以使用 `harbor job init` 创建并保存配置，而不立即运行作业。
+
+对于常用设置，建议创建配置文件并使用版本控制。
+
+<Note>
+    你可以将配置文件与 CLI 参数一起使用，以覆盖原配置中的值。
+</Note>
+
+下面是配置示例。
+
+```json
+{
+  "n_attempts": 5,
+  "n_concurrent_trials": 100,
+  "retry": {
+    "max_retries": 3
+  },
+  "agents": [
+    {
+      "name": "<agent>",
+      "model_name": "<model>"
+    }
+  ],
+  "datasets": [
+    {
+      "path": "<path>"
+    }
+  ]
+}
+```
+
+完整的作业配置架构请参阅[配置文件](/jobs/configs)。
+
+## 在 Harbor Hub（任务与结果共享平台） 上运行 {#run-on-harbor-hub}
+
+添加 `--launch` 参数，即可在 Harbor Hub 上运行作业。
+
+Harbor Hub
+
+- 在云端编排 Trial
+- 强制执行各提供方的并发限制
+- 遇到连续故障时暂停（例如达到用量限制）
+- 遇到速率限制时自动退避
+- 可通过 UI（用户界面） 或 CLI 访问，以便调试、触发重试、共享结果或监控进度
+
+首先登录：
+
+```bash
+harbor auth login
+```
+
+然后添加 `--launch` 参数运行作业：
+
+```bash
+harbor run -d "<org/name>" -a "<agent>" -m "<model>" \
+  -n "<concurrent>" --one-off-secret "<name>=<value>" --launch
+```
+
+有关评测自定义智能体以及基于 Git 的任务和数据集，请参阅[托管作业](/harbor-hub/hosted-jobs)。

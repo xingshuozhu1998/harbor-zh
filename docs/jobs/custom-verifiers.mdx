@@ -1,0 +1,64 @@
+---
+title: "自定义 Verifier（验证器）"
+description: "自定义 Job（任务运行集合） 的验证流程。"
+---
+
+Agent（智能体）运行后，默认的 `Verifier` 会在 Verifier Sandbox（验证沙箱）中执行 `/tests/test.sh`。除非[验证器镜像](/tasks/separate-verifier#image-selection)已包含 `tests/`，否则 Harbor（智能体评测框架） 会上传该目录。
+
+`Verifier` 对象是 `BaseVerifier` 的默认实现。如果用户希望以不同方式编排验证流程，或在宿主机上执行部分验证逻辑，可以实现自定义 `BaseVerifier`。
+
+| | 使用默认 `Verifier` 的 `tests/` | 自定义 `BaseVerifier` |
+| --- | --- | --- |
+| 逻辑 | Task（任务） 文件，通常为 `tests/test.sh` | 可导入的 Python（编程语言） 类 |
+| 执行 | 在 Verifier Sandbox 内 | `verify()` 在 Harbor 进程中运行，并可通过 `self.environment` 调用沙箱操作 |
+| Harbor 负责 | 需要时上传 tests、运行脚本、下载验证器日志并解析奖励文件 | 构造 Verifier 并调用 `verify()` |
+| 奖励输出 | `/logs/verifier/reward.txt` 或 `/logs/verifier/reward.json` | 返回的 `VerifierResult` |
+| 配置 | 随 Task 一同提供 | Job 配置中的 `verifier.import_path` 和可选的 `verifier.kwargs` |
+| 适用场景 | 可移植、针对特定 Task 的验证 | 自定义编排或宿主机检查 |
+
+<Note>
+  自定义 Verifier 会替代默认流程。它必须自行执行所需的上传、命令和奖励计算。
+</Note>
+
+例如，以下 Verifier 会检查 Agent 是否在沙箱中创建了指定文件：
+
+```python title="custom_verifier.py"
+from typing import Any
+
+from harbor.models.verifier.result import VerifierResult
+from harbor.verifier.base import BaseVerifier
+
+
+class OutputVerifier(BaseVerifier):
+    def __init__(
+        self, *, required_path: str = "/app/output.json", **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
+        self.required_path = required_path
+
+    async def verify(self) -> VerifierResult:
+        exists = await self.environment.is_file(self.required_path)
+        return VerifierResult(rewards={"reward": int(exists)})
+```
+
+Harbor 进程必须能够导入该文件。使用 `verifier.import_path` 指定类；`verifier.kwargs` 中的值会传给该类的构造函数。
+
+<Tabs>
+  <Tab title="CLI">
+    ```bash
+    harbor run -p "<path/to/dataset>" -a "<agent>" -m "<model>" \
+      --verifier custom_verifier:OutputVerifier \
+      --verifier-kwarg required_path=/app/output.json
+    ```
+  </Tab>
+  <Tab title="配置文件">
+    ```yaml
+    verifier:
+      import_path: custom_verifier:OutputVerifier
+      kwargs:
+        required_path: /app/output.json
+    ```
+  </Tab>
+</Tabs>
+
+完整的 Verifier 配置 Schema 请参阅[配置文件](/jobs/configs)。

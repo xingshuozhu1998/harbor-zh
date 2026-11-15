@@ -1,0 +1,92 @@
+---
+title: 技能
+description: 从本地目录或 Git（版本控制工具） 仓库注入可复用的指令
+---
+
+技能可以将上下文文件、提示词、规则和参考文档注入智能体 Trial（单次运行）。一项技能是一个包含 `SKILL.md` 文件的目录。
+
+## 技能如何传递给智能体 {#how-skills-reach-the-agent}
+
+对于每个 Trial，Harbor（智能体评测框架）会：
+
+1. 在主机上解析本地和 Git 技能来源，并生成各自的技能目录。
+2. 将每个目录上传到智能体沙箱中的 `/runtime/skills/<skill-name>`。如果任务声明了 [`environment.skills_dir`](/tasks/skills)，则改用该目录。
+3. 在设置智能体之前，将沙箱中的技能目录作为 `skills_dir` 传给智能体集成。
+4. 由集成将技能注册到其原生位置，或直接把目录传递给智能体运行时。
+
+例如，Codex（OpenAI 编程智能体） 集成会将技能复制到 `$HOME/.agents/skills`，Claude Code（Anthropic 编程智能体） 则使用 `$CLAUDE_CONFIG_DIR/skills`。自定义智能体会收到相同的 `skills_dir` 构造参数，并应在 `setup()` 或 `run()` 期间注册其中的内容。
+
+作业提供的技能会在环境健康检查之后、智能体设置之前上传。如果多个技能的目录名称相同，则最后一个生效。如何将技能直接打包到任务环境中，请参阅[任务 → 技能](/tasks/skills)。
+
+## 本地技能 {#local-skills}
+
+传入本地目录路径：
+
+```bash
+harbor run -d <dataset> -a <agent> \
+  --skill <path/to/skill>
+```
+
+路径可以指向包含 `SKILL.md` 的单个技能目录，也可以指向一个根目录，且其每个直接子目录都包含 `SKILL.md`。
+
+## Git 技能 {#git-skills}
+
+你可以引用 Git 仓库，无需将技能提交到每个项目中。Harbor 会克隆仓库、解析提交 SHA，并在本地缓存结果。
+
+### 简写语法 {#shorthand-syntax}
+
+```bash
+# Default branch, reading skills from repo/skills/
+harbor run --skill <org/repo> -a <agent> -d <dataset>
+
+# Tag or branch, reading skills from repo/skills/
+harbor run --skill <org/repo>@<ref> -a <agent> -d <dataset>
+```
+
+简写形式始终指向 `github.com`，并使用仓库中的 `skills/` 目录。
+
+### 完整 URL 语法 {#full-url-syntax}
+
+```bash
+# Default branch, reading skills from repo/skills/
+harbor run --skill https://github.com/<org>/<repo> -a <agent> -d <dataset>
+
+# Subdirectory within a repo (uses /tree/ref/path format)
+harbor run --skill https://github.com/<org>/<repo>/tree/<ref>/<path/to/skill> \
+  -a <agent> -d <dataset>
+```
+
+普通仓库 URL 使用仓库中的 `skills/` 目录。`/tree/<ref>/<subdir>` 格式可以指向单体仓库中的特定子目录。
+
+### 多项技能 {#multiple-skills}
+
+多次使用 `--skill` 可注入多项技能。如果两项技能的目录名称相同，则最后一个生效：
+
+```bash
+harbor run \
+  --skill <org/repo> \
+  --skill <path/to/local-skill> \
+  -a <agent> -d <dataset>
+```
+
+## 缓存 {#caching}
+
+Git 技能会缓存在本地路径 `~/.cache/harbor/skills/<host>/<org>/<name>/<sha>/`。提交一旦缓存，后续运行就会跳过克隆。同一仓库和提交中的不同子目录会自动处理。
+
+清除缓存：
+
+```bash
+rm -rf ~/.cache/harbor/skills
+```
+
+## 可复现性 {#reproducibility}
+
+运行作业时，Harbor 会在作业锁定文件中记录每项技能的来源信息：
+
+- **`name`** -- 技能目录名称
+- **`source`** -- 运行期间使用的本地路径
+- **`digest`** -- 技能中所有文件的 SHA-256 内容哈希
+- **`git_url`** -- 来源仓库（适用于 Git 技能）
+- **`git_commit_id`** -- 解析得到的提交 SHA (for git skills)
+
+这样可以将作业结果完整追溯到运行时使用的确切技能内容，即使分支之后发生变化也不受影响。

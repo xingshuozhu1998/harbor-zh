@@ -1,0 +1,82 @@
+---
+title: "环境变量"
+description: "控制哪些环境变量可供 Harbor（智能体评测框架）、沙箱、智能体和验证器使用。"
+---
+
+Harbor（智能体评测框架）会按用途区分变量：Harbor 进程、沙箱、智能体阶段或验证器阶段。
+
+<Warning>
+  请将 `DAYTONA_API_KEY` 等沙箱提供方凭据保留在 Harbor 进程中。通过 `environment.env`、`--agent-env` 或 `--verifier-env` 传递这些凭据会使它们不必要地暴露在沙箱内，**不建议这样做**。
+</Warning>
+
+<Note>
+  `export` 和 `--env-file` 不会将所有变量复制到沙箱中。如需传递 `DATABASE_URL` 等主机变量，请显式将 `environment.env.DATABASE_URL` 设置为 `${DATABASE_URL}`。
+</Note>
+
+<Tabs>
+  <Tab title="共享验证器">
+    智能体和验证器在同一沙箱中运行。
+
+    <Frame caption="共享验证器的环境变量范围">
+      <img
+        src="/images/environment-variable-reach.png"
+        alt="显示哪些变量可供 Harbor 进程、智能体阶段、验证器阶段和生命周期命令使用的矩阵"
+      />
+    </Frame>
+
+    生命周期命令包括健康检查、步骤设置和收集钩子。它们在智能体和验证器阶段前后运行，且只能接收沙箱变量。
+
+    | 范围与可用性 | Shell 或 CLI（命令行界面） | `config.json` | `task.toml` | 示例 |
+    | --- | --- | --- | --- | --- |
+    | **Harbor 进程**和环境提供方 | `export`, `--env-file` | — | — | `DAYTONA_API_KEY` |
+    | **共享沙箱：**智能体、验证器和生命周期命令 | — | `environment.env` | `[environment.env]` | `DATABASE_URL` |
+    | **仅限智能体阶段** | `--agent-env` (`--ae`) | `agents[].env` | — | `OPENAI_API_KEY` |
+    | **仅限验证器阶段** | `--verifier-env` (`--ve`) | `verifier.env` | `[verifier.env]` | `REWARDKIT_MODEL` |
+
+    <Frame caption="共享验证器的环境变量架构">
+      <img
+        src="/images/shared-sandbox-variables.png"
+        alt="Harbor 进程管理共享沙箱，其中包含智能体、验证器和生命周期命令的变量范围"
+      />
+    </Frame>
+
+    智能体、验证器和生命周期命令共用一个沙箱。阶段变量仅在相应阶段运行时添加，并覆盖同名的沙箱变量。
+  </Tab>
+
+  <Tab title="独立验证器（默认）">
+    [独立验证器](/tasks/separate-verifier)在第二个沙箱中运行。智能体阶段变量不会传递到该沙箱；只有[收集的产物](/jobs/artifact-collection)会从智能体沙箱传过去。
+
+    <Frame caption="独立验证器的环境变量范围">
+      <img
+        src="/images/separate-verifier-environment-variable-reach.png"
+        alt="显示哪些变量可供 Harbor 进程、智能体沙箱、验证器沙箱、各执行阶段和生命周期命令使用的矩阵"
+      />
+    </Frame>
+
+    `verifier.environment.env` 为验证器沙箱设置基线变量，其中包括供生命周期命令使用的变量。`verifier.env` 只会在验证器阶段添加变量。
+
+    | 范围与可用性 | Shell 或 CLI | `config.json` | `task.toml` | 示例 |
+    | --- | --- | --- | --- | --- |
+    | **Harbor 进程**和环境提供方 | `export`, `--env-file` | — | — | `DAYTONA_API_KEY` |
+    | **沙箱基线** | — | `environment.env`（两个沙箱） | `[environment.env]`（智能体沙箱） | `DATABASE_URL` |
+    | **仅限智能体阶段** | `--agent-env` (`--ae`) | `agents[].env` | — | `OPENAI_API_KEY` |
+    | **仅限验证器阶段** | `--verifier-env` (`--ve`) | `verifier.env` | `[verifier.env]` | `REWARDKIT_MODEL` |
+
+    <Frame caption="独立验证器的环境变量架构">
+      <img
+        src="/images/separate-verifier-sandbox-variables.png"
+        alt="Harbor 进程分别管理智能体和验证器沙箱及其阶段、生命周期命令变量范围"
+      />
+    </Frame>
+
+    <Note>
+      如果启用了独立模式但未配置 `[verifier.environment]`，Harbor 会复制顶层的 `[environment]`。因此，其中的 `[environment.env]` 变量也会成为验证器沙箱的基线变量。
+    </Note>
+
+    验证器阶段变量会覆盖验证器沙箱中的同名变量。智能体沙箱中的智能体阶段变量也遵循相同规则。
+  </Tab>
+</Tabs>
+
+## 自动转发智能体凭据 {#automatic-agent-credential-forwarding}
+
+一些[内置智能体](/agents/pre-integrated-agents)会自动识别指定的主机变量。详情请参阅[智能体身份验证解析](/agents/agent-auth-resolution#automatic-secret-collection)。

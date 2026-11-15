@@ -1,0 +1,36 @@
+---
+title: "交接会话"
+description: "在本地智能体 CLI（命令行界面） 中恢复已完成的 Trial（单次运行）。"
+---
+
+`harbor trial handoff` 会将已完成 Trial（单次运行）的原生会话复制到本地智能体 CLI，并在当前目录中恢复。你可以继续对话，或询问智能体有关其工作的内容。
+
+```bash
+# Local trial directory
+harbor trial handoff "jobs/<job>/<trial>"
+
+# Harbor Hub trial ID
+harbor trial handoff 594025f3-7d65-4655-8576-4bee95002eae
+```
+
+<Frame caption="Trial handoff to Claude Code">
+  <video
+    controls
+    className="w-full aspect-video rounded-xl"
+    src="/videos/handoff-demo.mp4"
+  >
+    你的浏览器不支持视频播放。
+  </video>
+</Frame>
+
+如果提供 Hub Trial ID，Harbor（智能体评测框架） 会先下载该 Trial。对于 `claude-code`，交接操作会将会话复制到本地 Claude Code（Anthropic 编程智能体） 存储目录，并运行 `claude --resume <session-id>`。
+
+## 要求 {#requirements}
+
+- 智能体支持 `capabilities.handoff`。目前只有 `claude-code` 支持此功能。
+- 本地已安装智能体 CLI。对于 `claude-code`，`claude` 必须位于 `PATH` 中。
+- Trial 中只包含一个会话。不支持包含多个会话的 Trial。
+
+## 恢复的内容 {#what-is-restored}
+
+交接操作恢复原生会话历史，不会恢复 Trial 沙箱中的文件。如需为新的 Harbor 运行提供初始轨迹，请参见[加载轨迹](/jobs/loading-trajectories)。

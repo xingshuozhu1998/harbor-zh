@@ -1,0 +1,79 @@
+---
+title: "错误分类"
+description: "Harbor（智能体评测框架） 处理各类 Trial（单次运行） 错误的统一参考：是否重试、评分以及奖励是否有效。"
+---
+
+[`error_policy.py`](https://github.com/harbor-framework/harbor/blob/main/src/harbor/models/trial/error_policy.py) 是 Trial 错误的**唯一权威来源**。每种异常类型都直接对应一个 `ErrorPolicy`，包含三个独立字段：`should_retry`、`should_grade` 和 `has_valid_reward`。
+
+<img
+  src="/images/error-classification.png"
+  alt="决策树：何时运行验证，以及其奖励是否有效"
+  className="block dark:hidden"
+/>
+<img
+  src="/images/error-classification-dark.png"
+  alt="决策树：何时运行验证，以及其奖励是否有效"
+  className="hidden dark:block"
+/>
+
+策略字段包含任何 `override_error_policy` 设置。**重试在尝试结束后决定：**重试设置决定是否按照相同流程开始下一次尝试。**禁用重试不会禁用评分。**
+
+`result.reward_valid` 表示 Trial 奖励是否可以计入**基准测试或 RL（强化学习） 训练**。验证器返回奖励后：
+
+- **没有错误：**`result.reward_valid=True`。
+- **发生错误：**只有 `policy.has_valid_reward=True` 时，`result.reward_valid=True`。
+
+<Note>
+  **0 和 1 都可能是有效奖励信号。**`reward_valid` 表示奖励能否用于 RL 和任务奖励聚合，不代表任务是否成功。无效奖励既不计入平均值的**分子，也不计入分母**。例如，奖励 `0`（有效）、`1`（有效）和 `1`（无效）的平均值为 `(0 + 1) / 2 = 0.5`。
+</Note>
+
+如果跳过验证或验证器未返回奖励，则 `result.reward_valid=False`。仅仅运行验证器并不能保证奖励有效。
+
+## 异常类型 {#exception-types}
+
+以下为 `_POLICY_GROUPS` 中定义的默认值。未列出的异常类型使用 `should_retry=True`、`should_grade=True`、`has_valid_reward=True`。
+
+<div className="error-policy-table">
+
+| Retry | Grade | Reward valid | Exception types |
+| --- | --- | --- | --- |
+| No | Yes | Yes | `NonZeroAgentExitCodeError`, `AgentTimeoutError`, `ContextWindowExceededError`, `OutputTokenExceededError`, `ContextLengthExceededError`, `OutputLengthExceededError`, `AgentSafetyRefusalError`, `ContentPolicyViolationError` |
+| Yes | No | No | `EnvironmentStartTimeoutError`, `SandboxBuildFailedError`, `AgentSetupTimeoutError`, `HealthcheckError`, `SandboxLikelyOutOfMemoryError`, `MemoryLimitExceededError`, `SSHAccessError`, `GKEExecStreamClosedError`, `GKEPodNotFoundError`, `RuntimeRequestError`, `AddTestsDirError`, `DownloadVerifierDirError` |
+| Yes | Yes | No | `ApiError`, `ApiRateLimitError`, `ApiInternalServerError`, `ApiOverloadedError`, `ApiConnectionClosedError`, `ApiResponseStalledError`, `UnknownApiError`, `NetworkConnectionError`, `ApiConnectionError`, `ApiUsageLimitError`, `RateLimitError`, `InternalServerError`, `ServiceUnavailableError`, `APIConnectionError`, `APIError`, `Timeout` |
+| No | Yes | No | `UnsupportedModelParametersError`, `BadRequestError`, `UnprocessableEntityError`, `UnsupportedParamsError`, `APIResponseValidationError`, `BudgetExceededError`, `VerifierTimeoutError`, `RewardFileNotFoundError`, `RewardFileEmptyError`, `VerifierOutputParseError` |
+| No | No | No | `AgentAuthenticationError`, `ModelNotFoundError`, `ApiProviderResourceNotFoundError`, `AuthenticationError`, `PermissionDeniedError`, `NotFoundError`, `ServiceOperationsUnsupportedError`, `VercelScopeError`, `DspyImportError`, `MissingExtraError`, `RegradeError`, `CancelledError` |
+
+</div>
+
+## 覆盖策略 {#overriding-the-policy}
+
+在 `JobConfig`（应用于其中的 Trial）或 `TrialConfig` 中设置 `override_error_policy`。键必须是准确的异常类型名称；省略的字段保留默认值。例如，在任务配置中添加：
+
+```yaml
+retry:
+  max_retries: 2
+override_error_policy:
+  NonZeroAgentExitCodeError:
+    should_retry: true
+  ApiRateLimitError:
+    should_retry: false
+    should_grade: true
+    has_valid_reward: false
+```
+
+[重试设置](/jobs/configs#retry)仍然生效：显式重试筛选条件优先于 `policy.should_retry`，且排除条件优先于包含条件。将 `retry.max_retries: 0`（默认值）设为 0 可禁用自动重试，例如由训练循环负责重试时。
+
+## 查看分类结果 {#reading-the-classification}
+
+```python
+result = TrialResult.model_validate_json(path.read_text())
+error = result.exception_info  # ApiRateLimitError with no overrides.
+
+print(error.exception_type)          # "ApiRateLimitError"
+print(error.policy.should_retry)     # True
+print(error.policy.should_grade)     # True
+print(error.policy.has_valid_reward) # False
+print(result.reward_valid)           # False
+```
+
+`ExceptionInfo.policy` 和 `TrialResult.reward_valid` 会计算后写入序列化 JSON（结构化数据格式）。每种异常都会保存适用的 `policy_override`，因此保存和加载结果时仍会保留覆盖设置。

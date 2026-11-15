@@ -1,0 +1,619 @@
+---
+title: "配置文件"
+description: "用于配置 Harbor（智能体评测框架） Job（任务运行集合）的完整 Schema。"
+---
+
+```bash
+harbor run -c "<config.yaml>"
+```
+
+Job 配置文件提供与 `harbor run` 标志相同的控制项，还支持在一个可重复使用的 JSON（结构化数据格式） 或 YAML（配置数据格式） 文件中配置多个 Agent（智能体）、数据集和 Task（任务）。
+
+示例：
+
+```yaml config.yaml
+job_name: my-first-job
+tasks:
+  - path: "<task-path>"
+agents:
+  - name: codex
+    model_name: openai/gpt-6-astra
+environment:
+  type: docker
+```
+
+## 创建配置文件 {#creating-a-config}
+
+你可以运行
+
+```bash
+harbor job init
+```
+
+生成配置文件。该命令接受与 `harbor run` 相同的标志。
+
+如需生成包含所有可用字段的配置文件：
+
+```bash
+harbor job init "<config.yaml>" --full
+```
+
+使用 `--print-config` 可在不运行 Job 的情况下检查解析后的配置：
+
+```bash
+harbor run --config "<config.yaml>" --print-config
+```
+
+使用 `harbor job schema` 可打印配置的 JSON Schema：
+
+```bash
+harbor job schema
+```
+
+使用 `--dry-run` 可检查配置、Agent 参数、凭据和 Task 来源，而不会下载 Task 或运行 Job：
+
+```bash
+harbor run --dry-run --config "<config.yaml>"
+```
+
+添加 `--launch` 可使用 Harbor Hub（任务与结果共享平台） 的 Schema 和验证规则。
+
+<Note>
+  所有顶层字段均为可选项。Harbor 会应用下文列出的默认值。标记为必填的字段仅在其所属对象存在时才必填。
+</Note>
+
+## Job {#job}
+
+<ParamField body="job_name" type="string" default="current timestamp">
+  Job 名称。若未设置，Harbor 会使用当前时间，格式为 `YYYY-MM-DD__HH-MM-SS`。
+</ParamField>
+
+<ParamField body="jobs_dir" type="string" default={'"jobs"'}>
+  Harbor 存储 Job 结果的目录。
+</ParamField>
+
+<ParamField body="n_attempts" type="integer" default="1">
+  每种 Task 与 Agent 组合的尝试次数。
+</ParamField>
+
+<ParamField body="install_only" type="boolean" default="false">
+  仅运行 Agent 的设置阶段，跳过 Agent 执行阶段并停用验证。
+</ParamField>
+
+<ParamField body="timeout_multiplier" type="number" default="1.0">
+  应用于 Task 超时时长的乘数；若阶段专用乘数已设置，则以阶段专用值为准。
+</ParamField>
+
+<ParamField body="agent_timeout_multiplier" type="number | null" default="null">
+  应用于 Agent 执行超时时长的乘数。
+</ParamField>
+
+<ParamField body="verifier_timeout_multiplier" type="number | null" default="null">
+  应用于 Verifier（验证器） 超时时长的乘数。
+</ParamField>
+
+<ParamField body="agent_setup_timeout_multiplier" type="number | null" default="null">
+  应用于 Agent 设置阶段超时时长的乘数。
+</ParamField>
+
+<ParamField body="environment_build_timeout_multiplier" type="number | null" default="null">
+  应用于环境构建超时时长的乘数。
+</ParamField>
+
+<ParamField body="debug" type="boolean" default="false">
+  启用调试日志。
+</ParamField>
+
+<ParamField body="n_concurrent_trials" type="integer" default="4">
+  同时运行的 Trial（单次运行）数量上限。必须至少为 1。每个 Agent 的并发限制不得超过此值。
+</ParamField>
+
+<ParamField body="quiet" type="boolean" default="false">
+  不显示各 Trial 的进度。
+</ParamField>
+
+<ParamField body="retry" type="RetryConfig" default="{}">
+  重试和指数退避配置。
+</ParamField>
+
+<ParamField body="override_error_policy" type="dict[string, ErrorPolicyOverride]" default="{}">
+  按异常类型覆盖 `should_retry`、`should_grade` 或 `has_valid_reward`。未提供的字段保留默认值。请参阅[错误分类](/jobs/error-classification#overriding-the-policy)。
+</ParamField>
+
+<ParamField body="environment" type="EnvironmentConfig" default="{}">
+  应用于每个 Trial 的共享环境提供方配置。
+</ParamField>
+
+<ParamField body="verifier" type="VerifierConfig" default="{}">
+  应用于每个 Trial 的共享 Verifier 配置。
+</ParamField>
+
+<ParamField body="metrics" type="list[MetricConfig]" default="[]">
+  追加到各数据集指标中的 Job 级指标。
+</ParamField>
+
+<ParamField body="agents" type="list[AgentConfig]" default={'[{"name":"oracle"}]'}>
+  此 Job 要评估的 Agent。
+</ParamField>
+
+<ParamField body="user_agent" type="UserAgentConfig | null" default="null">
+  可选的模拟用户 Agent 及其桥接配置，应用于每个 Trial。
+</ParamField>
+
+<ParamField body="datasets" type="list[DatasetConfig]" default="[]">
+  展开为 Task 的数据集来源。
+</ParamField>
+
+<ParamField body="tasks" type="list[TaskConfig]" default="[]">
+  单个 Task 来源。
+</ParamField>
+
+<ParamField body="artifacts" type="list[string | ArtifactConfig]" default="[]">
+  每个 Trial 结束后从环境中收集的路径。字符串是仅设置 `source` 的工件配置简写。
+</ParamField>
+
+<ParamField body="extra_instruction_paths" type="list[string]" default="[]">
+  在 `extra_instructions` 之前追加到每个 Task 指令中的文件。
+</ParamField>
+
+<ParamField body="extra_instructions" type="list[string]" default="[]">
+  在 `extra_instruction_paths` 之后追加到每个 Task 指令中的文本。
+</ParamField>
+
+<ParamField body="source_jobs" type="list[SourceJobConfig]" default="[]">
+  用于重新评分的来源 Job。设置此项后，Harbor 会从每个匹配的来源 Trial 派生一个新 Trial，而不会按常规方式展开 Task、Agent 和尝试次数。
+</ParamField>
+
+## 重试 {#retry}
+
+<ParamField body="retry.max_retries" type="integer" default="0">
+  最大重试次数。必须至少为 0。
+</ParamField>
+
+<ParamField body="retry.include_exceptions" type="set[string] | null" default="null">
+  可触发重试的异常类名称。`null` 表示包含下方排除项之外的所有异常。
+</ParamField>
+
+<ParamField body="retry.exclude_exceptions" type="set[string] | null" default="built-in non-retryable exceptions">
+  永不重试的异常类名称。排除项优先于包含项。默认值为[错误分类](/jobs/error-classification)中列出的不可重试类型。
+</ParamField>
+
+<ParamField body="retry.wait_multiplier" type="number" default="1.0">
+  指数退避等待时间的乘数。
+</ParamField>
+
+<ParamField body="retry.min_wait_sec" type="number" default="1.0">
+  两次重试之间的最短延迟，单位为秒。
+</ParamField>
+
+<ParamField body="retry.max_wait_sec" type="number" default="60.0">
+  两次重试之间的最长延迟，单位为秒。
+</ParamField>
+
+## Agent {#agents}
+
+<ParamField body="agents[].name" type="string | null" default={'"oracle"'}>
+  预集成 Agent 名称。自定义 Agent 请使用 `import_path`。
+</ParamField>
+
+<ParamField body="agents[].import_path" type="string | null" default="null">
+  自定义 Agent 的导入路径，格式为 `module.path:ClassName`。
+</ParamField>
+
+<ParamField body="agents[].model_name" type="string | null" default="null">
+  传递给 Agent 的模型标识符。
+</ParamField>
+
+<ParamField body="agents[].n_concurrent" type="integer | null" default="null">
+  每个 Agent 在并发执行 `agent.run()` 阶段时的上限。必须至少为 1，且不得超过 `n_concurrent_trials`。
+</ParamField>
+
+<ParamField body="agents[].concurrency_group" type="string | null" default="null">
+  共享并发池名称。同一组中的 Agent 必须设置相同的 `n_concurrent` 值。
+</ParamField>
+
+<ParamField body="agents[].skills" type="list[string]" default="[]">
+  本地技能目录、Git（版本控制工具） URL 或 `org/name[@ref]` 格式的技能来源。
+</ParamField>
+
+<ParamField body="agents[].override_timeout_sec" type="number | null" default="null">
+  将 Task 的 Agent 超时时长替换为此值，单位为秒。
+</ParamField>
+
+<ParamField body="agents[].override_setup_timeout_sec" type="number | null" default="null">
+  将 Agent 设置超时时长替换为此值，单位为秒。
+</ParamField>
+
+<ParamField body="agents[].max_timeout_sec" type="number | null" default="null">
+  Agent 实际超时时长的上限，单位为秒。
+</ParamField>
+
+<ParamField body="agents[].resume_trajectory" type="boolean" default="false">
+  在多步骤 Task 的各步骤之间恢复 Agent 的原生会话。需要 Agent 支持会话恢复。
+</ParamField>
+
+<ParamField body="agents[].load_trajectory" type="string | null" default="null">
+  在第一步之前加载原生 `.jsonl` 或 ATIF（智能体轨迹交换格式） `.json` 轨迹。需要 Agent 具备相应能力。
+</ParamField>
+
+<ParamField body="agents[].extra_allowed_hosts" type="list[string]" default="[]">
+  仅在运行 `agent.run()` 阶段添加到允许列表的主机名、IP 地址或 CIDR 网段。
+</ParamField>
+
+<ParamField body="agents[].include_logs" type="list[string]" default="[]">
+  用于选择要下载的 Agent 日志文件的 Glob 模式。
+</ParamField>
+
+<ParamField body="agents[].exclude_logs" type="list[string]" default="[]">
+  应用 `include_logs` 后，从下载的 Agent 日志中排除符合条件的文件。
+</ParamField>
+
+<ParamField body="agents[].kwargs" type="object" default="{}">
+  传递给 Agent 构造函数的集成专用关键字参数。
+</ParamField>
+
+<ParamField body="agents[].env" type="object[string, string]" default="{}">
+  仅在 Agent 阶段向其公开的环境变量。
+</ParamField>
+
+<ParamField body="agents[].mcp_servers" type="list[MCPServerConfig]" default="[]">
+  提供给 Agent 使用的 MCP（模型上下文协议） 服务器。
+</ParamField>
+
+请参阅[预集成 Agent](/agents/pre-integrated-agents)、[自定义 Agent](/agents/custom-agents)、[技能](/jobs/skills)和[加载轨迹](/jobs/loading-trajectories)。
+
+### MCP 服务器 {#mcp-servers}
+
+<ParamField body="agents[].mcp_servers[].name" type="string">
+  必填的服务器名称。
+</ParamField>
+
+<ParamField body="agents[].mcp_servers[].transport" type={'"stdio" | "sse" | "streamable-http"'} default={'"sse"'}>
+  MCP 传输方式。旧值 `http` 会规范化为 `streamable-http`。
+</ParamField>
+
+<ParamField body="agents[].mcp_servers[].url" type="string | null" default="null">
+  服务器 URL。使用 `sse` 或 `streamable-http` 传输方式时必填。
+</ParamField>
+
+<ParamField body="agents[].mcp_servers[].headers" type="object[string, string]" default="{}">
+  `sse` 和 `streamable-http` 服务器的 HTTP（超文本传输协议） 请求标头。`claude-code` 和 `codex` 支持此项。值中可以嵌入 `${VAR}` 和 `${VAR:-default}` 引用，并会在 Agent 设置前解析。凭据标头必须使用 `${VAR}` 引用。其他 Agent 不接受带标头的配置。请参阅 [MCP](/tasks/environment#mcps)。
+</ParamField>
+
+<ParamField body="agents[].mcp_servers[].command" type="string | null" default="null">
+  可执行命令。使用 `stdio` 传输方式时必填。
+</ParamField>
+
+<ParamField body="agents[].mcp_servers[].args" type="list[string]" default="[]">
+  传递给 `stdio` 服务器命令的参数。
+</ParamField>
+
+## 模拟用户 {#simulated-user}
+
+`user_agent` 支持 `agents[]` 中的所有字段，并额外支持以下字段。配置 `user_agent` 时必须提供 `bridge` 字段。
+
+<ParamField body="user_agent.user_persona_path" type="string | null" default="null">
+  定义模拟用户角色设定的文件路径。
+</ParamField>
+
+<ParamField body="user_agent.user_prompt_template_path" type="string | null" default="null">
+  模拟用户使用的 Jinja2 提示模板路径。
+</ParamField>
+
+<ParamField body="user_agent.bridge" type="BridgeConfig">
+  连接模拟用户与主 Agent 的必需桥接配置。
+</ParamField>
+
+<ParamField body="user_agent.bridge.kind" type={'"acp"'}>
+  必需的桥接实现。目前仅支持 `acp`。
+</ParamField>
+
+<ParamField body="user_agent.bridge.prompt_path" type="string | null" default="null">
+  可选项，用于替换桥接指令。
+</ParamField>
+
+<ParamField body="user_agent.bridge.kwargs" type="object" default="{}">
+  桥接专用关键字参数。
+</ParamField>
+
+请参阅[模拟用户](/jobs/simulate-a-user)。
+
+## 环境 {#environment}
+
+<ParamField body="environment.type" type="EnvironmentType | null" default={'"docker"'}>
+  预集成环境提供方：`docker`、`podman`、`daytona`、`e2b`、`modal`、`runloop`、`langsmith`、`ec2`、`gke`、`ack`、`openshift`、`novita`、`apple-container`、`singularity`、`islo`、`tensorlake`、`cwsandbox`、`use-computer`、`cua-cloud`、`blaxel`、`opensandbox`、`beam`、`skypilot`、`hf-sandbox`、`hyperbrowser`、`vercel`、`sail`、`superserve` 或 `sbx`。请参阅[预集成 Sandbox（沙箱）](/sandboxes/pre-integrated-sandboxes)。
+</ParamField>
+
+<ParamField body="environment.import_path" type="string | null" default="null">
+  自定义环境的导入路径，格式为 `module.path:ClassName`。
+</ParamField>
+
+<ParamField body="environment.force_build" type="boolean" default="false">
+  即使存在缓存的构建结果，也重新构建环境。
+</ParamField>
+
+<ParamField body="environment.delete" type="boolean" default="true">
+  Trial 完成后删除环境。
+</ParamField>
+
+<ParamField body="environment.cpu_enforcement_policy" type={'"auto" | "limit" | "request" | "guarantee" | "ignore"'} default={'"auto"'}>
+  提供方对 Task 的 CPU（中央处理器） 值执行资源限制的方式。
+</ParamField>
+
+<ParamField body="environment.memory_enforcement_policy" type={'"auto" | "limit" | "request" | "guarantee" | "ignore"'} default={'"auto"'}>
+  提供方对 Task 的内存值执行资源限制的方式。
+</ParamField>
+
+<ParamField body="environment.override_cpus" type="number | null" default="null">
+  在运行时替换 Task 的 CPU 值。小数值需要[提供方支持](/tasks/resources#provider-support)。
+</ParamField>
+
+<ParamField body="environment.override_memory_mb" type="integer | null" default="null">
+  将 Task 的内存值替换为此值，单位为 MB。
+</ParamField>
+
+<ParamField body="environment.override_storage_mb" type="integer | null" default="null">
+  将 Task 的存储空间值替换为此值，单位为 MB。
+</ParamField>
+
+<ParamField body="environment.override_gpus" type="integer | null" default="null">
+  替换 Task 的 GPU（图形处理器） 数量。
+</ParamField>
+
+<ParamField body="environment.override_tpu" type="TpuSpec | null" default="null">
+  替换 Task 的 TPU（张量处理器） 规格。
+</ParamField>
+
+<ParamField body="environment.suppress_override_warnings" type="boolean" default="false">
+  已弃用。此字段仍可接受，但不会生效，也不会在序列化配置时包含。
+</ParamField>
+
+<ParamField body="environment.mounts" type="list[ServiceVolumeConfig] | null" default="null">
+  仅用于 Agent 环境的 Docker Compose（多容器编排工具） 长格式卷挂载。
+</ParamField>
+
+<ParamField body="environment.extra_docker_compose" type="list[string]" default="[]">
+  仅用于 Agent 环境的额外 Docker Compose 覆盖文件。
+</ParamField>
+
+<ParamField body="environment.env" type="object[string, string]" default="{}">
+  在 Sandbox 内公开的基础环境变量。
+</ParamField>
+
+<ParamField body="environment.kwargs" type="object" default="{}">
+  传递给环境构造函数的提供方专用关键字参数。
+</ParamField>
+
+<ParamField body="environment.extra_allowed_hosts" type="list[string]" default="[]">
+  添加到环境网络基础允许列表中的主机名、IP 地址或 CIDR 网段。
+</ParamField>
+
+请参阅[资源](/tasks/resources)、[网络策略](/tasks/network-policies)和[自定义 Sandbox](/sandboxes/custom-sandboxes)。
+
+### TPU 覆盖设置 {#tpu-override}
+
+<ParamField body="environment.override_tpu.type" type="string">
+  必填的 TPU 别名或 GKE（Google 托管 Kubernetes 服务） 加速器标准标签，例如 `v6e` 或 `tpu-v6e-slice`。
+</ParamField>
+
+<ParamField body="environment.override_tpu.topology" type="string">
+  必填的拓扑结构，格式为 `NxM` 或 `NxMxK`，例如 `2x4`。
+</ParamField>
+
+### 挂载 {#mounts}
+
+<ParamField body="environment.mounts[].type" type={'"bind" | "volume" | "image"'}>
+  必填的挂载类型。
+</ParamField>
+
+<ParamField body="environment.mounts[].source" type="string">
+  必填的宿主机路径、具名卷或镜像来源。
+</ParamField>
+
+<ParamField body="environment.mounts[].target" type="string">
+  容器内的必填目标路径。
+</ParamField>
+
+<ParamField body="environment.mounts[].read_only" type="true" default="omitted">
+  设为 `true` 可进行只读挂载。
+</ParamField>
+
+<ParamField body="environment.mounts[].bind.create_host_path" type="false" default="omitted">
+  设为 `false` 可阻止 Docker Compose 创建缺失的绑定源路径。
+</ParamField>
+
+<ParamField body="environment.mounts[].bind.selinux" type={'"z" | "Z"'} default="omitted">
+  绑定挂载的可选 SELinux 重新标记模式。
+</ParamField>
+
+<ParamField body="environment.mounts[].volume.subpath" type="string" default="omitted">
+  具名卷中的可选子路径。
+</ParamField>
+
+<ParamField body="environment.mounts[].image.subpath" type="string" default="omitted">
+  镜像挂载中的可选子路径。
+</ParamField>
+
+## Verifier {#verifier}
+
+<ParamField body="verifier.override_timeout_sec" type="number | null" default="null">
+  将 Task 的 Verifier 超时时长替换为此值，单位为秒。
+</ParamField>
+
+<ParamField body="verifier.max_timeout_sec" type="number | null" default="null">
+  实际 Verifier 超时时长的上限，单位为秒。
+</ParamField>
+
+<ParamField body="verifier.include_logs" type="list[string]" default="[]">
+  用于选择要下载的 Verifier 日志文件的 Glob 模式。奖励文件始终会下载。
+</ParamField>
+
+<ParamField body="verifier.exclude_logs" type="list[string]" default="[]">
+  应用 `include_logs` 后，从 Verifier 日志中排除符合条件的文件。
+</ParamField>
+
+<ParamField body="verifier.env" type="object[string, string]" default="{}">
+  仅在 Verifier 阶段向其公开的环境变量。
+</ParamField>
+
+<ParamField body="verifier.import_path" type="string | null" default="null">
+  自定义 Verifier 的导入路径，格式为 `module.path:ClassName`。
+</ParamField>
+
+<ParamField body="verifier.kwargs" type="object" default="{}">
+  传递给自定义 Verifier 的关键字参数。
+</ParamField>
+
+<ParamField body="verifier.disable" type="boolean" default="false">
+  跳过验证。启用 `install_only` 时会自动设为 `true`。
+</ParamField>
+
+<ParamField body="verifier.extra_allowed_hosts" type="list[string]" default="[]">
+  在 `verify()` 期间添加到允许列表的主机名、IP 地址或 CIDR 网段；使用独立 Verifier 环境时，也会在启动阶段添加。
+</ParamField>
+
+请参阅[自定义 Verifier](/jobs/custom-verifiers)和[环境变量](/jobs/environment-variables)。
+
+## 数据集 {#datasets}
+
+<ParamField body="datasets[].path" type="string | null" default="null">
+  本地数据集目录。与 `repo` 一起使用时，此字段用于选择相对于仓库的隐式数据集目录。
+</ParamField>
+
+<ParamField body="datasets[].name" type="string | null" default="null">
+  Harbor Hub 数据集，格式为 `org/name`；也可以为自定义注册表或 Git 仓库注册表中的数据集名称。
+</ParamField>
+
+<ParamField body="datasets[].version" type="string | null" default="null">
+  从 JSON 注册表或具名 Git 仓库注册表中选择的版本。
+</ParamField>
+
+<ParamField body="datasets[].ref" type="string | null" default="null">
+  为 Harbor Hub 数据集选择的标签、修订版本或摘要。
+</ParamField>
+
+<ParamField body="datasets[].registry_url" type="string | null" default="null">
+  自定义 `registry.json` 文件的 URL。
+</ParamField>
+
+<ParamField body="datasets[].registry_path" type="string | null" default="null">
+  自定义 `registry.json` 的路径。与 `repo` 一起使用时，此路径相对于仓库。
+</ParamField>
+
+<ParamField body="datasets[].repo" type="string | null" default="null">
+  Git 仓库简写或 URL；可使用 `@ref` 固定版本。
+</ParamField>
+
+<ParamField body="datasets[].overwrite" type="boolean" default="false">
+  覆盖缓存中的远程 Task。
+</ParamField>
+
+<ParamField body="datasets[].download_dir" type="string | null" default="null">
+  用于缓存下载 Task 的目录。
+</ParamField>
+
+<ParamField body="datasets[].task_names" type="list[string] | null" default="null">
+  按名称选择 Task 的 Glob 模式。
+</ParamField>
+
+<ParamField body="datasets[].exclude_task_names" type="list[string] | null" default="null">
+  应用 `task_names` 后用于排除 Task 的 Glob 模式。
+</ParamField>
+
+<ParamField body="datasets[].n_tasks" type="integer | null" default="null">
+  应用包含和排除筛选条件后，Task 数量的上限。
+</ParamField>
+
+每个数据集必须且只能选择一种来源形式。不使用 `repo` 时，设置 `path` 或 `name` 其中之一，不能同时设置。使用 `repo` 时，`path` 用于选择隐式数据集，`name` 用于选择具名注册表数据集。`version` 和 `ref` 不能同时设置。
+
+请参阅[数据集](/datasets/datasets)、[注册表](/datasets/registries)和 [Git 仓库](/datasets/git-repos)。
+
+## Task {#tasks}
+
+<ParamField body="tasks[].path" type="string | null" default="null">
+  本地 Task 目录；设置 `git_url` 时，也可以填写 Git 仓库中的路径。
+</ParamField>
+
+<ParamField body="tasks[].git_url" type="string | null" default="null">
+  包含该 Task 的 Git 仓库。
+</ParamField>
+
+<ParamField body="tasks[].git_commit_id" type="string | null" default="null">
+  包含该 Task 的 Git 提交。此项要求设置 `git_url`。
+</ParamField>
+
+<ParamField body="tasks[].name" type="string | null" default="null">
+  Harbor Hub Task 名称，格式为 `org/name`。
+</ParamField>
+
+<ParamField body="tasks[].ref" type="string | null" default="null">
+  Harbor Hub Task 标签、修订版本或摘要。此项要求设置 `name`。
+</ParamField>
+
+<ParamField body="tasks[].overwrite" type="boolean" default="false">
+  覆盖缓存中的远程 Task。
+</ParamField>
+
+<ParamField body="tasks[].download_dir" type="string | null" default="null">
+  用于缓存下载 Task 的目录。
+</ParamField>
+
+<ParamField body="tasks[].source" type="string | null" default="null">
+  可选来源标签，用于对 Task 和指标分组。
+</ParamField>
+
+每个 Task 必须且只能设置 `path` 或 `name` 其中之一。Git Task 使用 `path` 和 `git_url`；Harbor Hub Task 使用 `name`，并可选设置 `ref`。
+
+请参阅 [Task → 概览](/tasks/overview)。
+
+## 指标 {#metrics}
+
+<ParamField body="metrics[].type" type={'"sum" | "min" | "max" | "mean" | "uv-script"'} default={'"mean"'}>
+  用于汇总 Task 奖励的指标实现。
+</ParamField>
+
+<ParamField body="metrics[].kwargs" type="object" default="{}">
+  传递给指标实现的关键字参数。`uv-script` 要求设置 `script_path`。
+</ParamField>
+
+请参阅[指标](/datasets/metrics)。
+
+## 工件 {#artifacts}
+
+<ParamField body="artifacts[].source" type="string">
+  必填的环境收集路径。路径中不能包含 `..` 路径组件。
+</ParamField>
+
+<ParamField body="artifacts[].destination" type="string | null" default="null">
+  Trial 工件目录下的可选路径。未设置时，Harbor 会根据 `source` 推导该值。
+</ParamField>
+
+<ParamField body="artifacts[].exclude" type="list[string]" default="[]">
+  下载目录型工件时要排除的模式。
+</ParamField>
+
+<ParamField body="artifacts[].service" type="string | null" default="null">
+  要从中收集文件的 Docker Compose 服务。`null` 和 `main` 均表示 Agent 容器。
+</ParamField>
+
+请参阅[工件收集](/jobs/artifact-collection)。
+
+## 重新评分来源 {#regrade-sources}
+
+<ParamField body="source_jobs[].action" type={'"regrade"'}>
+  必填的派生操作。目前仅支持 `regrade`。
+</ParamField>
+
+<ParamField body="source_jobs[].type" type={'"local" | "hub"'}>
+  必填的来源位置。
+</ParamField>
+
+<ParamField body="source_jobs[].job_id" type="string | null" default="null">
+  来源 Job UUID。Hub 来源必填，本地来源可选。
+</ParamField>
+
+<ParamField body="source_jobs[].path" type="string | null" default="null">
+  来源 Job 目录。本地来源必填，Hub 来源不得设置。
+</ParamField>
+
+重新评分不能与 `install_only` 同时使用。请参阅[重新评分](/jobs/regrade)。

@@ -1,0 +1,39 @@
+---
+title: "实时查看"
+description: "在 Job（任务运行集合） 运行时跟踪 Agent（智能体） 操作并浏览 Sandbox（沙箱） 文件。"
+---
+
+在 Job 运行时查看 Agent 正在执行的操作并检查其工作：
+
+1. **实时查看 Agent 日志。**在 **Trajectory** 标签页中，随着新步骤到达，跟踪 Agent 操作、命令和结果。
+2. **监视 Agent 目录。**打开 **Stream** 标签页，实时浏览 Sandbox 文件和生成的工件。Sandbox 准备就绪后会自动连接。
+
+<Frame>
+  <video
+    controls
+    preload="metadata"
+    className="w-full rounded-xl"
+    src="/videos/stream-demo.mp4"
+    aria-label="Stream 标签页中的沙箱文件，以及 Trajectory 标签页中实时显示的 Agent 步骤"
+  >
+    你的浏览器不支持嵌入式视频。
+  </video>
+</Frame>
+
+运行命令时添加 `--stream`。目前支持在 Daytona（云沙箱平台）、Modal（云计算与沙箱平台）、Smol Machines、Tensorlake（沙箱提供商） 或本地 Docker（容器平台） 上运行的 Claude Code（Anthropic 编程智能体） 和 Codex（OpenAI 编程智能体）：
+
+```bash
+harbor run -t terminal-bench/build-cython-ext \
+  -a claude-code -m anthropic/claude-sonnet-5 -e docker --stream
+```
+
+在另一个终端中运行：
+
+```bash
+harbor view jobs
+```
+
+浏览器和 viewer 必须运行在同一台计算机上。
+使用 Daytona 时，Harbor（智能体评测框架） **和 viewer** 都需要能够访问凭据。
+
+添加 `--no-delete` 可在运行结束后保留 Sandbox。**这也便于调试。**请记得之后删除它。
