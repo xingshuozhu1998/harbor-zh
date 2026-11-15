@@ -1,0 +1,116 @@
+---
+title: "资源"
+description: "管理环境资源。"
+---
+
+Task（任务）在 `task.toml` 中声明资源。Harbor（智能体评测框架） 会通过**资源执行策略**应用 CPU（中央处理器） 和内存设置；只有在提供方支持时，存储、GPU（图形处理器） 和 TPU（张量处理器） 请求才会传递给提供方。
+
+## Task 字段 {#task-fields}
+
+```toml
+[environment]
+cpus = 2
+memory_mb = 4096
+storage_mb = 10240
+gpus = 1
+gpu_types = ["H100", "A100"]
+
+[environment.tpu]   # optional; GKE only
+type = "v6e"
+topology = "2x4"
+```
+
+| 字段 | 说明 |
+| -------------- | ------------------------------------------------------------------------------------- |
+| `cpus` | CPU 数量 |
+| `memory_mb` | RAM（运行内存） 内存，单位为 MB |
+| `storage_mb` | 临时磁盘空间，单位为 MB |
+| `gpus` | GPU 数量 |
+| `gpu_types` | 可接受的 GPU 类型（可选） |
+| `tpu.type` | TPU 加速器类型：别名（`v6e`、`trillium`、`v4`）或 GKE（Google 托管 Kubernetes 服务） 标签（`tpu-v6e-slice`） |
+| `tpu.topology` | TPU 拓扑，格式为 `NxM` 或 `NxMxK`（必填；芯片数量等于各维度相乘） |
+
+所有字段均为可选。未设置的字段将采用提供方的默认资源规格。
+
+[独立 Verifier（验证器） Sandbox（沙箱）](/tasks/separate-verifier) 可以在 `[verifier.environment]` 下设置自己的资源值。
+
+## 执行策略 {#enforcement-policies}
+
+CPU 和内存分别使用独立策略。通过 `--cpus` / `--memory`，或在 Job（任务运行集合） 或 Trial（单次运行） 配置中通过 `cpu_enforcement_policy` / `memory_enforcement_policy` 设置策略。
+
+| 策略 | 含义 | 是否要求设置 `cpus` / `memory_mb`？ |
+| ----------- | ------------------------------------- | ------------------------------ |
+| `auto` | 使用提供方的默认模式 | 否 |
+| `limit` | 仅设置硬性上限 | 是 |
+| `request` | 仅预留资源，不设上限 | 是 |
+| `guarantee` | 同时预留资源并设置硬性上限 | 是 |
+| `ignore` | 不向提供方传递该值 | 否 |
+
+<Tabs>
+  <Tab title="命令行">
+    ```bash
+    harbor run -p "<path/to/dataset>" -m "<model>" -a "<agent>" \
+      -e docker --cpus limit --memory guarantee
+    ```
+  </Tab>
+
+  <Tab title="配置文件">
+    ```yaml
+    environment:
+      type: docker
+      cpu_enforcement_policy: limit
+      memory_enforcement_policy: auto
+    ```
+  </Tab>
+</Tabs>
+
+你可以在运行时覆盖资源值：
+
+<Tabs>
+  <Tab title="命令行">
+    ```bash
+    harbor run -p "<path/to/dataset>" -m "<model>" -a "<agent>" \
+      --override-cpus 4 \
+      --override-memory-mb 8192 \
+      --override-storage-mb 20480 \
+      --override-tpu v6e=2x4
+    ```
+  </Tab>
+
+  <Tab title="配置文件">
+    ```yaml
+    environment:
+      override_cpus: 4
+      override_memory_mb: 8192
+      override_storage_mb: 20480
+      override_tpu:
+        type: v6e
+        topology: 2x4
+    ```
+  </Tab>
+</Tabs>
+
+## 提供方支持 {#provider-support}
+
+Harbor 会在创建 Job 时验证策略。不受支持的组合会在 Trial 运行前失败。`limit` 和 `guarantee` 要求提供方支持限额；`request` 和 `guarantee` 要求提供方支持资源请求。
+
+存储、GPU 和 TPU 没有执行策略。Harbor 会将声明的值传给支持这些资源的提供方。
+
+| 能力 | 环境 |
+| --- | --- |
+| CPU 和内存限额 | `apple-container`、`cwsandbox`、`docker`、`ec2`、`gke`、`modal`、`opensandbox`、`openshift`、`podman`、`skypilot`、`runta`、`prime`、`sbx`、`superserve` |
+| 小数 CPU（例如 `0.5`） | `docker`、`gke`、`modal`、`openshift`、`podman`、`beam`、`opensandbox` |
+| CPU 请求 | `beam`、`cwsandbox`、`daytona`、`e2b`、`gke`、`hyperbrowser`、`islo`、`modal`、`novita`、`openshift`、`runloop`、`skypilot`、`tensorlake`、`vercel`、`runta`、`sail`、`superserve` |
+| 内存请求 | `beam`、`blaxel`、`cwsandbox`、`daytona`、`e2b`、`gke`、`hyperbrowser`、`islo`、`modal`、`novita`、`openshift`、`runloop`、`skypilot`、`tensorlake`、`vercel`、`runta`、`sail`、`superserve` |
+| 存储规格 | `ack`、`daytona`、`gke`、`hyperbrowser`、`islo`、`langsmith`、`runloop`、`runta`、`tensorlake`、`use-computer`、`prime`、`sail`、`superserve` |
+| GPU 分配 | `beam`、`daytona`、`gke`、`modal`、`opensandbox`、`prime`、`docker` |
+| TPU 分配 | `gke` |
+
+## 验证时机 {#validation}
+
+| 检查项 | 执行时机 |
+| -------------------------------------------- | ----------------- |
+| 策略与提供方匹配 | 创建 Job 时 |
+| 非 `auto`/`ignore` 策略缺少所需值 | 启动环境时 |
+| GPU / TPU / 互联网要求 | 启动环境时 |
+| 同时设置 GPU 和 TPU（GKE） | 启动环境时 |

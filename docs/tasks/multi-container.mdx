@@ -1,0 +1,85 @@
+---
+title: "多容器"
+description: "Harbor（智能体评测框架） 多容器环境说明。"
+---
+
+多容器环境可向运行环境添加数据库、API（应用程序接口）、MCP（模型上下文协议） 等其他服务。
+
+## 规范 {#specification}
+
+多数情况下，使用 **`environment/docker-compose.yaml`** 定义多容器环境。
+
+<Note>
+Harbor 本身不限定你使用哪种基础设施即代码规范，因此也可以使用 `docker-compose.yaml` 以外的规范支持多容器环境。Harbor 尚未原生支持其他规范，但用户可以通过实现[自定义环境](/sandboxes/custom-sandboxes)自行添加支持。
+</Note>
+
+## 保留服务与默认 Compose 配置 {#reserved-services-and-default-compose}
+
+Harbor 将 `main` 服务名称保留给智能体容器，其他服务均视为 Sidecar（旁路服务）。Harbor 会将你的 `environment/docker-compose.yaml` 合并到基础 Compose 文件中，因此无需自行定义 `main` 服务的构建或保活命令。
+
+对于包含 `Dockerfile` 的任务，基础 Compose 文件为 [`docker-compose-build.yaml`](https://github.com/harbor-framework/harbor/blob/main/src/harbor/environments/docker/docker-compose-build.yaml)：
+
+```yaml title="src/harbor/environments/docker/docker-compose-build.yaml"
+services:
+  main:
+    build:
+      context: ${CONTEXT_DIR}
+    pull_policy: build
+    command: [ "sh", "-c", "sleep infinity" ]
+```
+
+对于使用预构建镜像而非本地构建的任务，Harbor 使用 [`docker-compose-prebuilt.yaml`](https://github.com/harbor-framework/harbor/blob/main/src/harbor/environments/docker/docker-compose-prebuilt.yaml)：
+
+```yaml title="src/harbor/environments/docker/docker-compose-prebuilt.yaml"
+services:
+  main:
+    image: ${PREBUILT_IMAGE_NAME}
+    command: [ "sh", "-c", "sleep infinity" ]
+```
+
+## 示例目录结构 {#example-layout}
+
+```bash
+my-task/
+├── instruction.md
+├── task.toml
+└── environment/
+    ├── Dockerfile              # agent (main) service
+    ├── docker-compose.yaml     # sidecars + depends_on
+    └── mcp-server/             # optional service build context
+        ├── Dockerfile
+        └── server.py
+```
+
+Harbor 将智能体服务视为 **`main`**。通常只需在 Compose 配置中添加 `depends_on` 和健康检查等覆盖项，其余内容由 Harbor 配置。
+
+```yaml title="environment/docker-compose.yaml"
+services:
+  main:
+    depends_on:
+      mcp-server:
+        condition: service_healthy
+
+  mcp-server:
+    build:
+      context: ./mcp-server
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('localhost',8000),timeout=2); s.close()"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+```
+
+Sidecar 与 `main` 共用 Docker（容器平台） 网络；可通过**服务名称**访问它们（例如 `http://mcp-server:8000`）。
+
+## 支持情况 {#support}
+
+| 支持类型 | 环境 |
+| --- | --- |
+| 原生 Compose | `docker`, `podman`, `ec2`, `islo`, `vercel` |
+| Docker in Docker Compose（多容器编排工具） | `blaxel`, `beam`, `daytona`, `gke`, `hyperbrowser`, `langsmith`, `modal`, `novita`, `tensorlake`, `sail`, `sbx`, `superserve` |
+| 其他多容器规范 | 仅限自定义环境 |
+| 不支持 | `e2b`, `runloop`, `ack`, `openshift`, `apple-container`, `singularity`, `cwsandbox`, `use-computer`, `cua-cloud`, `opensandbox`, `skypilot`, `hf-sandbox` |

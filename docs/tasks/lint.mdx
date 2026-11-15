@@ -1,0 +1,78 @@
+---
+title: "Lint 检查"
+description: "无需运行 Sandbox（沙箱）即可检查 Task（任务） 配置、文件和常见安全风险。"
+---
+
+`harbor lint` 无需运行 Sandbox 即可检查 Task 配置、文件和常见安全风险。
+without running a sandbox.
+
+```bash
+harbor lint ./task-one ./task-two
+harbor lint --json ./task-one
+harbor lint --ignore shared-verifier ./task-one
+harbor lint --select shared-verifier --select unpinned-python-dependency ./task-one
+harbor lint --extend-select root-agent --extend-select unpinned-image ./task-one
+harbor lint --extend-select ALL ./task-one
+```
+
+除 `root-agent` 和 `unpinned-image` 外，所有规则默认启用。
+
+未配置规则文件时：
+
+- `--select A` → **仅检查 A**
+- `--extend-select A` → **默认规则 + A**
+- `--ignore A` → **默认规则 − A**
+
+重复这些选项可指定多个精确规则名称。`--select` 和
+`--extend-select` 也接受 `ALL`，包括未来版本中新增的规则。
+
+规则选择方式参考了 [Ruff（Python 代码检查工具）](https://docs.astral.sh/ruff/linter/#__tabbed_3_1)（Python（编程语言） 代码检查工具）。
+
+可以在 `task.toml` 或 `dataset.toml` 中配置相同选项：
+
+```toml
+[metadata.harbor.lint]
+extend-select = ["root-agent"]
+ignore = ["shared-verifier"]
+```
+
+优先级：**CLI（命令行界面） 标志 > task.toml > dataset.toml > 默认值**。
+
+## Task 检查 {#task-checks}
+
+| 规则 | 默认启用 | 报告内容 |
+| --- | --- | --- |
+| `invalid-task-config` | ✓ | Task 或 Compose 配置无效。 |
+| `unknown-config-field` | ✓ | 配置字段未知，并提供拼写建议。 |
+| `invalid-task-files` | ✓ | 缺少或排除必需文件、指令为空、输入路径不安全，或启用的 `.harborignore` 文件无效。 |
+| `unused-harborignore` | ✓ | `tests/` 或 `solution/` 之外的 `.harborignore` 文件，包括步骤目录中的对应文件。 |
+| `root-agent` | — | Agent（智能体） 用户未设置或设为 root，包括步骤覆盖配置。 |
+| `shared-verifier` | ✓ | Verifier（验证器） 与 Agent 共用 Sandbox。 |
+| `overlapping-artifacts` | ✓ | 工件输出发生冲突，可能导致请求内容未被收集；检查范围包括跨服务和步骤。 |
+| `artifact-log-overlap` | ✓ | 工件路径与独立 Verifier 受保护的 Agent 或 Verifier 日志路径重叠。 |
+| `unpinned-image` | — | Task 配置、Dockerfile `FROM` 指令或 Compose 中使用的外部镜像没有固定 SHA-256 摘要。 |
+| `unpinned-python-dependency` | ✓ | 直接使用 `pip install`、`uv pip/tool install` 或 `uvx --with` 安装依赖，但没有精确版本或不可变引用。 |
+| `verifier-runtime-install` | ✓ | 独立 Verifier 在 Trial（单次运行） 运行时安装 pytest（Python 测试框架） 或 pytest-json-ctrf，除非显式设为离线。 |
+| `verifier-network-download` | ✓ | 独立 Verifier 克隆外部仓库、保存外部下载内容，或将下载内容通过管道传给 Shell。 |
+| `agent-image-test-leak` | ✓ | Agent Dockerfile 中显式 `COPY`/`ADD` 引用了 `tests/test.sh`、`tests/test_*.py` 或 `solution/solve.sh`。 |
+
+## Compose 检查 {#compose-checks}
+
+需要 **Docker（容器平台） CLI**（Docker 命令行工具）。没有 Compose 文件的 Task 不会运行这些检查。
+
+Harbor（智能体评测框架） 运行时变量使用占位值；运行时宿主机挂载会被标记为可能指向 Task 目录之外。
+Compose 插值使用适用的 Agent 或 Verifier 环境配置；Task 中的值优先于 Shell 值。
+
+| 规则 | 默认启用 | 报告内容 |
+| --- | --- | --- |
+| `compose-privileged` | ✓ | 启用特权模式的服务或生命周期钩子。 |
+| `compose-additional-capabilities` | ✓ | 通过 `cap_add` 请求的额外能力。 |
+| `compose-writable-bind-mount` | ✓ | 可写的宿主机绑定挂载。 |
+| `compose-external-bind-mount` | ✓ | 解析后位于 Task 目录之外的绑定源。 |
+| `compose-symlink-bind-mount` | ✓ | 经过符号链接解析后位于 Task 目录之外的绑定源。 |
+
+Lint 检查是可选的。对于不适用于你的 Task 的规则，请使用 `--ignore`。
+
+<Note>
+静态 Lint 检查可补充基于评分标准的 `harbor check` 和 `harbor analyze`，但不能保证 Task 或 Verifier 正确。
+</Note>

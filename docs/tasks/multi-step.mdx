@@ -1,0 +1,171 @@
+---
+title: "多步骤 Task（任务）"
+description: "评估 Agent（智能体） 在多个里程碑中的表现。"
+---
+
+多步骤 Task 可以在 Agent 运行过程中分阶段验证，并衡量 Agent 从先前会话继续工作的能力。这种方式适用于包含早停条件的长周期 Task，也可用于衡量记忆和持续学习能力。
+
+## 文件结构 {#format}
+
+多步骤 Task 的目录结构与常规 Harbor（智能体评测框架） Task 不同：
+
+```bash
+task.toml
+environment/
+├── Dockerfile  # or some other spec
+└── ...
+tests/
+├── helpers.py  # optional shared grading utilities
+└── ...
+steps/
+├── step-1/
+│   ├── instruction.md
+│   ├── tests/
+│   │   ├── test.sh
+│   │   └── ...
+│   ├── solution/
+│   │   ├── solve.sh
+│   │   └── ...
+│   └── workdir/
+│       ├── setup.sh  # optional
+│       └── ...
+└── step-2/
+    └── ...
+```
+
+一个步骤可以包含以下文件和目录：
+
+- `instruction.md`（必需）
+- `tests/`（可选）
+- `solution/`（可选）
+- `workdir/`（可选）
+
+## 配置 {#configuration}
+
+在根目录的 `task.toml` 中按执行顺序声明步骤。每个 `name` 对应 `steps/` 下的一个目录。其他 Task 设置使用标准的[任务配置](/tasks/configuration)。
+
+```toml
+multi_step_reward_strategy = "mean"
+
+[agent]
+timeout_sec = 600
+
+[[steps]]
+name = "step-1"
+min_reward = 1.0
+
+[steps.agent]
+timeout_sec = 300
+
+[[steps]]
+name = "step-2"
+
+[steps.verifier]
+timeout_sec = 120
+```
+
+此处 `step-1` 的 Agent 超时为 300 秒；`step-2` 会继承 600 秒。只有 `step-1` 的 `reward` 至少为 `1.0` 时，才会运行 `step-2`。
+
+### 步骤 Schema {#steps-schema}
+
+每个 `[[steps]]` 条目接受以下字段：
+
+<ParamField body="name" type="string" required>
+  `steps/` 下唯一且可移植的目录名称。
+</ParamField>
+
+<ParamField body="agent" type="AgentConfig">
+  此步骤的 Agent 设置，使用 Task 的 `[agent]` Schema。
+</ParamField>
+
+<ParamField body="verifier" type="VerifierConfig">
+  此步骤的 Verifier（验证器） 设置，使用 Task 的 `[verifier]` Schema，包括[独立环境](/tasks/separate-verifier)。
+</ParamField>
+
+<ParamField body="min_reward" type="number | object | null" default="null">
+  继续执行所需的奖励阈值。请参阅[早停](#early-stopping)。
+</ParamField>
+
+<ParamField body="healthcheck" type="HealthcheckConfig | null" default="null">
+  Agent 运行前，在步骤设置完成后执行的额外健康检查。使用环境健康检查 Schema。
+</ParamField>
+
+<ParamField body="artifacts" type="list[string | ArtifactConfig]" default="[]">
+  Agent 运行后、步骤验证前收集的额外[工件](/tasks/configuration#artifacts)，保存到 `steps/<name>/artifacts/`，与 Task 级和 Trial（单次运行） 级工件一同保存。
+</ParamField>
+
+### Trial 奖励 {#trial-reward}
+
+在 `task.toml` 顶层设置 `multi_step_reward_strategy`：
+
+- `"mean"`（默认）：对有 Verifier 结果的各步骤奖励取平均；缺失的键按 0 计。
+- `"final"`：使用最后一个已执行步骤的 Verifier 结果。
+
+## 早停 {#early-stopping}
+
+如果某步骤的分数过低，可通过设置 `min_reward` 跳过剩余步骤。数值会检查 `reward` 键；对象则要求其中每个奖励都达到对应阈值：
+
+```toml
+[[steps]]
+name = "step-1"
+min_reward = { accuracy = 0.9, safety = 1.0 }
+
+[[steps]]
+name = "step-2"
+```
+
+缺少奖励键时检查失败；分数等于阈值时视为通过。未设置 `min_reward` 时，低分不会停止执行。禁用验证时会忽略阈值，但如果步骤出错且没有 Verifier 结果，Task 仍会停止。
+
+跳过的步骤不会计入 Trial 奖励。`"final"` 使用最后一个已执行步骤的结果；`"mean"` 对现有 Verifier 结果取平均。
+
+## 测试辅助文件 {#test-helpers}
+
+将共享辅助文件放在基础 `tests/` 目录中。Harbor 会将其复制到 `/tests/`，再覆盖式地添加步骤的 tests 文件。
+
+[独立 Verifier](/tasks/separate-verifier#image-selection) 会使用专用 Verifier 镜像中打包的测试；若退回 Agent 环境，则采用相同的上传行为。
+
+## 添加步骤专用环境文件 {#adding-step-specific-environment-files}
+
+有时你需要在步骤开始时将文件上传到 Agent 工作区。请将文件放在 `steps/<step-name>/workdir/` 中。Harbor 会在步骤开始前将其复制到 Agent 工作目录，并覆盖同路径文件。
+
+```bash
+steps/step-2/workdir/
+├── input.csv
+└── setup.sh
+```
+
+可选的 `setup.sh` 会在复制后通过 Bash（命令行解释器） 运行。文件系统的更改会保留到后续步骤。
+
+## 恢复 Agent 会话 {#resuming-an-agent-session}
+
+默认情况下，每个步骤都会开始一个新的对话。要继续上一步的会话，请使用：
+
+<Tabs>
+  <Tab title="命令行">
+    ```bash
+    harbor run \
+      --path "<task-path>" \
+      --agent "<agent>" \
+      --model "<model>" \
+      --resume-trajectory
+    ```
+  </Tab>
+  <Tab title="配置文件">
+    ```yaml
+    tasks:
+      - path: "<task-path>"
+    agents:
+      - name: "<agent>"
+        model_name: "<model>"
+        resume_trajectory: true
+    ```
+  </Tab>
+</Tabs>
+
+需要 Agent 支持原生会话恢复。无论是否启用此设置，环境都会保留。
+
+## 从指定步骤开始 {#starting-from-a-specific-step}
+
+<Note>
+  即将支持从指定步骤开始。要启用此功能，请确保此前的步骤包含 `solution/solve.sh` 文件。
+</Note>

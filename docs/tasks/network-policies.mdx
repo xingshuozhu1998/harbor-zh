@@ -1,0 +1,150 @@
+---
+title: "网络策略"
+description: "Harbor（智能体评测框架） 网络策略文档。"
+---
+
+任务作者通常希望在任务批次运行期间限制智能体或验证器的网络访问，以提高安全性、可复现性或缓解奖励作弊。
+
+可以在 `task.toml` 文件中以不同粒度指定网络策略。具体选择取决于环境支持的功能和使用场景。
+
+## 示例 {#example}
+
+```toml title="task.toml"
+[environment] # default unless overridden by [agent] or [verifier]
+network_mode = "public"
+
+[agent] # applies during agent.run() -- but *not* during agent.setup()
+network_mode = "allowlist"
+allowed_hosts = ["pypi.org", "api.openai.com"]
+
+[verifier] # applies during verifier.verify()
+network_mode = "no-network"
+```
+
+<Frame caption="共享沙箱各阶段的网络策略">
+  <img
+    src="/images/netpolicy.png"
+    alt="示意图：环境基准策略为 public，智能体阶段使用 allowlist，验证器阶段禁用网络"
+  />
+</Frame>
+
+<Note>
+  在此示例中，智能体仍可下载和安装，因为 `agent.setup()` 使用公开的 `[environment]` 基准策略。`[agent]` 仅适用于 `agent.run()`。某个阶段没有覆盖项时，会继承其沙箱的基准策略。
+</Note>
+
+## 网络模式 {#network-modes}
+
+Harbor 支持三种网络模式：`public`、`no-network` 和 `allowlist`。
+
+| 网络模式 | 说明                                                                                       | Supported environments                                                                                                                                                          |
+| ------------ | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public`     | 完全网络访问。                                                                              | All                                                                                                                                                                             |
+| `no-network` | 禁止网络访问。                                                                                | `docker`³, `podman`³, `daytona`, `e2b`, `langsmith`, `tensorlake`, `cwsandbox`, `runloop`, `modal`¹⁰, `gke`², `ec2`, `novita`, `islo`, `blaxel`, `opensandbox`, `skypilot`, `beam`, `hyperbrowser`, `vercel`⁷, `runta`, `prime`, `sail`, `sbx`, `boxd`, `superserve` |
+| `allowlist`  | 仅可访问 `allowed_hosts` 中列出的目标；列表为空或省略时会禁止所有出站流量。 | `docker`⁴, `podman`⁴, `daytona`¹, `e2b`, `langsmith`, `islo`, `runloop`, `modal`¹⁰, `novita`¹, `blaxel`¹, `beam`⁵, `tensorlake`⁶, `hyperbrowser`, `vercel`⁷, `runta`, `prime`, `sail`, `sbx`⁹, `superserve` |
+
+<Accordion title="Provider 特定限制">
+
+`prime` provider 会将运行时网络策略更改应用于新连接；现有连接保持打开状态。
+
+`sail` provider 会将运行时网络策略更改应用于新连接；现有连接保持打开状态，但切换到 `no-network` 时会使其停滞。
+
+`superserve` provider 会将运行时网络策略更改应用于新连接；现有连接保持打开状态。它通过 TLS SNI 或 HTTP（超文本传输协议） `Host` 标头匹配主机名条目，因此只允许端口 80 和 443；`*.example.com` 会匹配任意层级的子域名，但不匹配 `example.com` 本身。IPv4 地址和 CIDR 条目允许所有端口。主机名允许列表也会放行沙箱的 DNS 解析器。
+
+¹ 仅适用于单容器任务（不使用 Docker Compose（多容器编排工具） 模式）。<br />
+² 仅适用于 Docker Compose（多容器）任务。<br />
+³ Docker（容器平台） 和 Podman（容器管理工具） 需要使用 Linux（操作系统内核及相关系统） 容器；Windows（微软操作系统） 容器不支持此网络策略模式。<br />
+⁴ Docker 和 Podman 需要使用 Linux 容器，且本地运行时支持 Harbor 出站流量控制 sidecar 所需的 nftables 内核功能。<br />
+⁵ Beam 会在应用策略前将具体主机名解析为 IP CIDR；不支持通配主机条目。<br />
+⁶ TensorLake（沙箱提供商） 允许列表接受精确主机名、前置通配符主机名（通配符匹配任意层级的子域名，但不匹配顶级域名本身）、IPv4 字面地址和 IPv4 CIDR 范围，不接受 IPv6 目标。<br />
+⁷ Vercel 允许列表仅适用于单容器任务。它通过 TLS SNI 匹配域名规则，接受精确主机名和前置通配符主机名，但不接受 IP 字面地址或 CIDR 范围；对允许列表中的主机拒绝纯文本 HTTP。策略从沙箱创建时开始生效，也可以在沙箱运行期间更新。Compose 任务仅支持 `public` 和 `no-network`。<br />
+⁸ 仅在未提供自定义网关配置文件或网关配置时，Islo 才支持动态网络策略。<br />
+⁹ SBX 允许列表和运行时策略更改要求 `target=cloud`。本地 SBX 仅支持静态 `no-network`。<br />
+¹⁰ 运行时要求和启动限制请参见 [Modal（云计算与沙箱平台） Compose](#modal-compose)。
+
+</Accordion>
+
+## 阶段 {#phases}
+
+可以为以下阶段指定网络策略：
+
+| Phase                    | Description                                                                                                                                                                 | Supported environments                                                                                       |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `[environment]`          | 环境启动时配置的基准网络策略。                                                                                                           | 支持所请求网络模式的任意环境                                                     |
+| `[agent]`                | `agent.run()` 阶段的网络访问策略。要求环境 provider 支持动态切换网络策略。此设置会覆盖 `[environment]` 基准策略。 | `docker`⁴, `podman`⁴, `daytona`¹, `e2b`, `islo`⁸, `modal`¹⁰, `novita`¹, `beam`⁵, `hyperbrowser`, `vercel`⁷, `tensorlake`⁶, `runta`, `prime`, `sail`, `sbx`⁹, `superserve` |
+| `[verifier]`             | `verify()` 阶段的网络访问策略。要求环境 provider 支持动态切换网络策略。此设置会覆盖 `[environment]` 基准策略。    | `docker`⁴, `podman`⁴, `daytona`¹, `e2b`, `islo`⁸, `modal`¹⁰, `novita`¹, `beam`⁵, `hyperbrowser`, `vercel`⁷, `tensorlake`⁶, `runta`, `prime`, `sail`, `sbx`⁹, `superserve` |
+| `[verifier.environment]` | 使用独立验证器环境时，在验证器环境启动时配置的基准网络策略。                                                      | 支持所请求网络模式的任意环境                                                     |
+
+基准阶段要求环境支持指定的网络模式（参见上表）。
+
+使用[多步骤任务](/tasks/multi-step)时，也可以在步骤级别指定这些阶段。
+
+## 能力 {#capabilities}
+
+每个 `BaseEnvironment` 实现都会声明 `EnvironmentCapabilities` 模型，描述其支持的功能。以下能力决定网络策略的执行方式：
+
+| Capability                             | Description                                                                                                            | Environments                                                                                                                                                                    |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `disable_internet`                     | 环境可以在没有互联网访问的情况下运行容器（`no-network`）。                                             | `docker`³, `podman`³, `daytona`, `e2b`, `langsmith`, `tensorlake`, `cwsandbox`, `runloop`, `modal`¹⁰, `gke`², `ec2`, `novita`, `islo`, `blaxel`, `opensandbox`, `skypilot`, `beam`, `hyperbrowser`, `vercel`⁷, `runta`, `prime`, `sail`, `sbx`, `boxd`, `superserve` |
+| `network_allowlist`                    | 环境可以将出站流量限制为已配置的允许列表条目（`allowlist`）。                                     | `docker`⁴, `podman`⁴, `daytona`¹, `e2b`, `langsmith`, `islo`, `runloop`, `modal`¹⁰, `novita`¹, `blaxel`¹, `beam`⁵, `tensorlake`⁶, `hyperbrowser`, `vercel`⁷, `runta`, `prime`, `sail`, `sbx`⁹, `superserve` |
+| `network_allowlist_hostnames`          | 环境可以强制执行 `allowed_hosts` 中的精确主机名条目。                                                 | `docker`⁴, `podman`⁴, `daytona`¹, `e2b`, `langsmith`, `islo`, `runloop`, `modal`¹⁰, `novita`¹, `blaxel`¹, `beam`⁵, `tensorlake`⁶, `hyperbrowser`, `vercel`⁷, `runta`, `prime`, `sail`, `sbx`⁹, `superserve` |
+| `network_allowlist_wildcard_hostnames` | 环境可以强制执行 `allowed_hosts` 中的前置通配符主机名条目。                                      | `docker`⁴, `podman`⁴, `daytona`¹, `e2b`, `langsmith`, `runloop`, `modal`¹⁰, `novita`¹, `blaxel`¹, `hyperbrowser`, `vercel`⁷, `tensorlake`⁶, `runta`, `prime`, `sail`, `superserve` |
+| `network_allowlist_ipv4_addresses`     | 环境可以强制执行 `allowed_hosts` 中的 IPv4 字面地址条目。                                           | `docker`⁴, `podman`⁴, `daytona`¹, `e2b`, `modal`¹⁰, `novita`¹, `beam`⁵, `tensorlake`⁶, `hyperbrowser`, `prime`, `sail`, `superserve` |
+| `network_allowlist_ipv6_addresses`     | 环境可以强制执行 `allowed_hosts` 中的 IPv6 字面地址条目。                                           | `docker`⁴, `podman`⁴, `beam`⁵                                                                                                                                                              |
+| `network_allowlist_ipv4_cidrs`         | 环境可以强制执行 `allowed_hosts` 中的 IPv4 CIDR 范围条目。                                                | `docker`⁴, `podman`⁴, `daytona`¹, `modal`¹⁰, `novita`¹, `beam`⁵, `tensorlake`⁶, `hyperbrowser`, `prime`, `sail`, `superserve` |
+| `network_allowlist_ipv6_cidrs`         | 环境可以强制执行 `allowed_hosts` 中的 IPv6 CIDR 范围条目。                                                | `docker`⁴, `podman`⁴, `beam`⁵                                                                                                                                                              |
+| `dynamic_network_policy`               | 环境可以在启动后切换当前网络策略，从而支持 `[agent]` 和 `[verifier]` 阶段覆盖。 | `docker`⁴, `podman`⁴, `daytona`¹, `e2b`, `islo`⁸, `modal`¹⁰, `novita`¹, `beam`⁵, `hyperbrowser`, `vercel`⁷, `tensorlake`⁶, `runta`, `prime`, `sail`, `sbx`⁹, `superserve` |
+
+<Accordion title="完整功能矩阵">
+
+| Capability | `docker` | `podman` | `daytona` | `e2b` | `langsmith` | `tensorlake` | `cwsandbox` | `runloop` | `modal` | `gke` | `ec2` | `novita` | `islo` | `blaxel` | `opensandbox` | `skypilot` | `beam` | `hyperbrowser` | `vercel` | `runta` | `prime` | `sail` | `sbx`⁹ | `superserve` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `disable_internet` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `network_allowlist` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |  | ✓ | ✓ |  |  | ✓ | ✓ | ✓ |  |  | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `network_allowlist_hostnames` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |  | ✓ | ✓ |  |  | ✓ | ✓ | ✓ |  |  | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `network_allowlist_wildcard_hostnames` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |  | ✓ | ✓ |  |  | ✓ |  | ✓ |  |  |  | ✓ | ✓ | ✓ | ✓ | ✓ |  | ✓ |
+| `network_allowlist_ipv4_addresses` | ✓ | ✓ | ✓ | ✓ |  | ✓ |  |  | ✓ |  |  | ✓ |  |  |  |  | ✓ | ✓ |  |  | ✓ | ✓ |  | ✓ |
+| `network_allowlist_ipv6_addresses` | ✓ | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |  |  | ✓ |  |  |  |  |  |  |  |
+| `network_allowlist_ipv4_cidrs` | ✓ | ✓ | ✓ |  |  | ✓ |  |  | ✓ |  |  | ✓ |  |  |  |  | ✓ | ✓ |  |  | ✓ | ✓ |  | ✓ |
+| `network_allowlist_ipv6_cidrs` | ✓ | ✓ |  |  |  |  |  |  |  |  |  |  |  |  |  |  | ✓ |  |  |  |  |  |  |  |
+| `dynamic_network_policy` | ✓ | ✓ | ✓ | ✓ |  | ✓ |  |  | ✓ |  |  | ✓ | ✓ |  |  |  | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+</Accordion>
+
+<Accordion title="Provider 特定限制">
+
+¹ 仅适用于单容器任务（不使用 Docker Compose 模式）。<br />
+² 仅适用于 Docker Compose（多容器）任务。<br />
+³ Docker 和 Podman 需要使用 Linux 容器；Windows 容器不支持此网络策略模式。<br />
+⁴ Docker 和 Podman 需要使用 Linux 容器，且本地运行时支持 Harbor 出站流量控制 sidecar 所需的 nftables 内核功能。<br />
+⁵ Beam 会在应用策略前将具体主机名解析为 IP CIDR；不支持通配主机条目。<br />
+⁶ TensorLake 允许列表接受精确主机名、前置通配符主机名（SDK（软件开发工具包） 0.5.110+；通配符匹配任意层级的子域名，但不匹配顶级域名本身）、IPv4 字面地址和 IPv4 CIDR 范围，不接受 IPv6 目标。<br />
+⁷ Vercel 允许列表仅适用于单容器任务。它通过 TLS SNI 匹配域名规则，接受精确主机名和前置通配符主机名，但不接受 IP 字面地址或 CIDR 范围；对允许列表中的主机拒绝纯文本 HTTP。策略从沙箱创建时开始生效，也可以在沙箱运行期间更新。Compose 任务仅支持 `public` 和 `no-network`。<br />
+⁸ 仅在未提供自定义网关配置文件或网关配置时，Islo 才支持动态网络策略。<br />
+⁹ SBX 允许列表和运行时策略更改要求 `target=cloud`。本地 SBX 仅支持静态 `no-network`。<br />
+¹⁰ 运行时要求和启动限制请参见 [Modal Compose](#modal-compose)。
+
+</Accordion>
+
+如果任务请求的网络模式不属于环境声明支持的能力，Harbor 会在验证时拒绝 Trial（单次运行），而不会在较弱的策略下继续运行。
+
+## Modal Compose {#modal-compose}
+
+Modal 支持为单容器任务和 Docker Compose 任务配置网络允许列表并在运行时更改策略。无 GPU（图形处理器） 的 Compose 任务默认使用 VM（虚拟机）；GPU 任务和单容器任务仍默认使用 gVisor（隔离容器运行时）。显式设置 `--ek modal_vm_runtime=true` 或 `false` 会覆盖运行时选择，但 VM 不支持 GPU。
+
+外层沙箱会对所有 Compose 服务执行出站策略，同时保留内部连接。启动策略也适用于 Docker 镜像拉取和构建下载：准备阶段应放行所需目标，然后使用 `[agent]` 和 `[verifier]` 覆盖项限制后续阶段。Harbor 不会临时放宽受限的启动策略。
+
+## 内置网页工具 {#built-in-web-tools}
+
+使用服务器端访问的内置网页工具可以通过 `no-network` 和 `allowlist` 网络策略禁用。显式将智能体选项 `disable_web_search` 设为 `true` 或 `false` 会覆盖默认行为。`public` 网络策略会保留已配置的工具设置。此行为也适用于通过 ACP（智能体客户端协议） 运行的模拟用户 Trial 中的两个智能体。
+
+支持的智能体请参见[智能体能力](/agents/pre-integrated-agents#agent-capabilities)。其他智能体在收到禁用网页工具的请求时会记录错误，并继续沿用现有工具行为。
+
+沙箱网络限制独立生效。启用网页工具并不会放行沙箱中被阻止的连接；由 provider 托管的搜索可能在沙箱之外运行。此选项不涵盖任意 MCP（模型上下文协议） 工具。
+
+## 为什么区分阶段？ {#why-phases%3F}
+
+任务作者通常希望对智能体（或验证器）实施不同的网络策略，但在环境中配置智能体时不希望执行这些策略。例如，你可能需要先将 Claude Code（Anthropic 编程智能体） 安装到环境中，然后在任务批次运行期间关闭所有网络访问，只允许访问 Anthropic（模型服务提供商） API（应用程序接口）。
+
+## 支持 {#support}
+
+环境实现会声明是否支持在启动时和运行期间配置网络策略。目前启动时配置的支持范围更广，但两种能力的支持范围都在扩大。

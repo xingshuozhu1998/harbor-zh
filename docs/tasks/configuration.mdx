@@ -1,0 +1,317 @@
+---
+title: "配置"
+description: "任务配置、元数据和结构参考。"
+---
+
+**`task.toml`** 文件用于指定任务配置和元数据。
+
+```toml
+schema_version = "1.4"
+
+[task]
+name = "apple/create-unix-os"
+authors = [{ name = "Steve Jobs", email = "steve@apple.com" }]
+
+[metadata]
+difficulty_explanation = "Trivial task for demonstration"
+category = "programming"
+
+[verifier]
+timeout_sec = 120.0
+env = { API_KEY = "sk-test-123" }
+user = "root"  # optional: run the verifier as this OS user
+
+[agent]
+timeout_sec = 120.0
+user = "agent"  # optional: run the agent as this OS user
+
+[solution]
+env = { API_KEY = "sk-test-123" }
+
+[environment]
+network_mode = "allowlist"  # baseline; defaults to "public" when omitted
+allowed_hosts = ["pypi.org"]
+docker_image = "apple/unix-os:latest"
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+```
+
+## `[environment]` 与 `environment/` {#%5Benvironment%5D-vs-environment%2F}
+
+默认情况下，Harbor（智能体评测框架） 尽可能将配置放在 `environment/` 规范中，而不是 `task.toml`。`environment/` 规范（例如 `Dockerfile`）经过大量工程设计，为常见使用场景提供了约定。
+
+只有在确有必要时，Harbor 才要求在 `task.toml` 中配置。
+
+由于缺少通用约定或容易遇到问题，`task.toml` 中保留了少数字段：
+
+| 字段 | 说明                                                                                                                                                            |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `environment.docker_image`  | 指定环境使用的 Docker（容器平台）镜像。（设置此项后，可以完全省略 `environment/`）                                                        |
+| `environment.network_mode`  | 设置网络隔离模式（例如 `public`、`allowlist`）。                                                                                                         |
+| `environment.allowed_hosts` | 当 `network_mode` 为 `allowlist` 时，列出允许出站访问的域名/IP。                                                                              |
+| `environment.env`           | 定义要注入环境的环境变量。                                                                                                          |
+| `environment.healthcheck`   | 用于检查环境是否健康或就绪的配置。                                                                                                     |
+| `environment.workdir`       | 设置在环境中运行命令时的工作目录。该字段根据用户需求添加，使用户无需重建镜像即可设置 `workdir`。 |
+
+## 字段参考 {#field-reference}
+
+### 通用 {#general}
+
+<ParamField body="schema_version" type="string" default={'"1.4"'}>
+  任务配置格式的版本。
+</ParamField>
+
+<ParamField body="multi_step_reward_strategy" type={'"mean" | "final" | null'} default="null">
+  如何根据每个步骤的验证器结果计算 Trial（单次运行） 级别奖励。仅在设置 `[[steps]]` 时生效；单步骤任务请留空（多步骤任务默认为 "mean"）。参见[多步骤任务](/tasks/multi-step)。
+</ParamField>
+
+### `[task]` {#%5Btask%5D}
+
+<ParamField body="task" type="PackageInfo | null" default="null">
+  用于注册表软件包元数据的可选 [task] 节。设置时必须提供 task.name。
+</ParamField>
+
+<ParamField body="task.name" type="string">
+  采用 org/name 格式的软件包名称（例如 "harbor/hello-world"）。声明 [task] 时必填。
+</ParamField>
+
+<ParamField body="task.authors" type="list[Author]" default="[]">
+  任务作者列表。每项必须包含姓名，电子邮件为可选项（例如 `[{ name = "Jane", email = "jane@example.com" }]`）。
+</ParamField>
+
+<ParamField body="task.description" type="string" default={'""'}>
+  便于阅读的任务说明。
+</ParamField>
+
+<ParamField body="task.keywords" type="list[string]" default="[]">
+  用于搜索和分类的关键词。
+</ParamField>
+
+### `[metadata]` {#%5Bmetadata%5D}
+
+<ParamField body="metadata" type="object">
+  任务作者提供的任意元数据。
+</ParamField>
+
+### `[verifier]` {#%5Bverifier%5D}
+
+<ParamField body="verifier.timeout_sec" type="number" default="600">
+  验证器的超时时间，单位为秒。
+</ParamField>
+
+<ParamField body="verifier.network_mode" type={'"no-network" | "public" | "allowlist" | null'} default="null (no override)">
+  verify() 阶段的可选覆盖项。只有设置了此项且与验证器基准策略不同时才会应用。参见[网络策略](/tasks/network-policies)。
+</ParamField>
+
+<ParamField body="verifier.allowed_hosts" type="list[string] | null" default="null">
+  当 verifier.network_mode 为 allowlist 时，允许访问的主机名列表。
+</ParamField>
+
+<ParamField body="verifier.env" type="object" default="{}">
+  运行验证器时设置的环境变量。
+</ParamField>
+
+<ParamField body="verifier.user" type="string | int | null" default="null">
+  运行验证器时使用的用户名或 UID。设置后，验证前会相应配置环境默认用户。未设置时，使用环境容器的默认用户（通常为 root）。
+</ParamField>
+
+<ParamField body="verifier.environment_mode" type={'"shared" | "separate" | null'} default="null">
+  验证器的运行位置。"shared"（同时省略此字段和 [verifier.environment] 时的默认值）会复用智能体容器；"separate" 会启动使用独立镜像的专用验证器容器。声明 [verifier.environment] 但省略此字段时，默认采用 "separate"。同时声明 "shared" 和 [verifier.environment] 会导致验证错误。
+</ParamField>
+
+<ParamField body="verifier.environment" type="EnvironmentConfig | null" default="null">
+  验证器的可选配置，使用与 `[environment]` 相同的结构。验证器镜像和 `tests/` 构建定义优先于智能体环境。专用验证器镜像必须包含测试；若回退到智能体环境，Harbor 会将测试上传至 `/tests/`。参见[镜像选择](/tasks/separate-verifier#image-selection)。
+</ParamField>
+
+<ParamField body="verifier.environment.network_mode" type={'"no-network" | "public" | "allowlist"'} default={'"public"'}>
+  设置 [verifier.environment] 时，独立验证器环境的基准网络模式。可用模式与 environment.network_mode 相同。
+</ParamField>
+
+<ParamField body="verifier.environment.allowed_hosts" type="list[string] | null" default="null">
+  当 verifier.environment.network_mode 为 allowlist 时，允许访问的主机名。
+</ParamField>
+
+### `[agent]` {#%5Bagent%5D}
+
+<ParamField body="agent.timeout_sec" type="number | null" default="null">
+  智能体的超时时间，单位为秒。未设置时不强制执行超时。
+</ParamField>
+
+<ParamField body="agent.network_mode" type={'"no-network" | "public" | "allowlist" | null'} default="null (no override)">
+  agent.run() 阶段的可选覆盖项。只有设置了此项且与 [environment] 不同时才会应用。参见[网络策略](/tasks/network-policies)。
+</ParamField>
+
+<ParamField body="agent.allowed_hosts" type="list[string] | null" default="null">
+  当 agent.network_mode 为 allowlist 时，允许访问的主机名。
+</ParamField>
+
+<ParamField body="agent.user" type="string | int | null" default="null">
+  运行智能体时使用的用户名或 UID。设置后，会在智能体初始化和执行前相应配置环境默认用户。未设置时，使用环境容器的默认用户（通常为 root）。
+</ParamField>
+
+### `[solution]` {#%5Bsolution%5D}
+
+<ParamField body="solution.env" type="object" default="{}">
+  运行解决方案时要设置的环境变量。
+</ParamField>
+
+### `[environment]` {#%5Benvironment%5D}
+
+<ParamField body="environment.build_timeout_sec" type="number" default="600">
+  环境构建的超时时间，单位为秒。
+</ParamField>
+
+<ParamField body="environment.network_mode" type={'"no-network" | "public" | "allowlist"'} default={'"public"'}>
+  智能体环境的基准网络策略。如果没有独立验证器环境覆盖该策略，它也作为共享验证器的基准策略。参见[网络策略](/tasks/network-policies)。
+</ParamField>
+
+<ParamField body="environment.allowed_hosts" type="list[string] | null" default="null">
+  当 environment.network_mode 为 allowlist 时，允许访问的主机名。
+</ParamField>
+
+<ParamField body="environment.docker_image" type="string | null" default="null">
+  环境要使用的预构建 Docker 镜像。对于支持的环境类型，设置此项后可省略 environment/Dockerfile。
+</ParamField>
+
+<ParamField body="environment.os" type={'"linux" | "windows"'} default={'"linux"'}>
+  任务容器的目标操作系统："linux"（默认）或 "windows"。设为 "windows" 时，Harbor 使用 Windows（微软操作系统） 路径、通过 cmd.exe 执行命令、通过 tar-over-exec 传输文件，并且只查找 .bat 脚本。启动时会根据该值校验 Docker 守护进程模式和镜像操作系统，不匹配时立即报错。
+</ParamField>
+
+<ParamField body="environment.cpus" type="number | null" default="null">
+  任务申请的 CPU（中央处理器） 数量。省略时由所选 provider 决定 CPU 配额。小数值需要[provider 支持](/tasks/resources#provider-support)。
+</ParamField>
+
+<ParamField body="environment.memory_mb" type="integer | null" default="null">
+  任务申请的内存量，单位为 MB。省略时由所选 provider 决定内存配额。
+</ParamField>
+
+<ParamField body="environment.storage_mb" type="integer | null" default="null">
+  任务申请的存储量，单位为 MB。省略时由所选 provider 决定存储配额。
+</ParamField>
+
+<ParamField body="environment.gpus" type="integer | null" default="null">
+  任务申请的 GPU（图形处理器） 数量。省略时不申请 GPU。
+</ParamField>
+
+<ParamField body="environment.gpu_types" type="list[string] | null" default="null">
+  可接受的 GPU 类型列表（例如 ['H100', 'A100', 'T4']）。设为 None 表示任意 GPU 类型均可。
+</ParamField>
+
+<ParamField body="environment.tpu" type="TpuSpec | null" default="null">
+  TPU（张量处理器） 切片规格（类型和拓扑）。设置后，环境会申请符合该规格的 TPU 节点；每个 Pod 的芯片数根据拓扑计算。每个 Pod 只能分配一个 TPU 切片，因此该字段为单数形式。仅 TPU 环境支持（目前为 GKE（Google 托管 Kubernetes 服务））。
+</ParamField>
+
+<ParamField body="environment.tpu.type" type="string">
+  TPU 加速器类型。接受易读别名（例如 'v6e'、'trillium'、'v4'）或规范的 GKE 标签（例如 'tpu-v6e-slice'、'tpu7x'）。
+</ParamField>
+
+<ParamField body="environment.tpu.topology" type="string">
+  TPU 拓扑格式为 'NxM' 或 'NxMxK'（例如 '2x4'、'2x2x1'）。此字段必填，因为 GKE 隐式默认拓扑不属于稳定约定；省略后，Harbor 运行结果可能无法跨 GKE 版本复现。每个 Pod 的 TPU 芯片数按各维度乘积计算（例如 '2x2x1' → 4 个芯片，'2x4' → 8 个芯片）。每个维度必须是正整数（不能有前导零）。
+</ParamField>
+
+<ParamField body="environment.allow_internet" type="boolean | null" default="null">
+  已弃用的兼容字段。建议使用 [environment].network_mode。设置此字段且省略 [environment].network_mode 时，false 对应 no-network，true 对应 public。
+</ParamField>
+
+<ParamField body="environment.env" type="object" default="{}">
+  任务所需的环境变量，运行时从主机解析。支持 `${VAR}` 和 `${VAR:-default}` 模板语法。
+</ParamField>
+
+<ParamField body="environment.mcp_servers.name" type="string">
+  每个 MCP（模型上下文协议） 服务器条目的唯一名称（在 TOML（配置文件格式） 中使用 `[[environment.mcp_servers]]` 声明服务器）。兼容的智能体会自动注册这些服务器。参见 [MCP](/tasks/environment#mcps)。
+</ParamField>
+
+<ParamField body="environment.mcp_servers.transport" type={'"stdio" | "sse" | "streamable-http"'} default={'"sse"'}>
+  智能体连接服务器的方式。"sse" 和 "streamable-http" 需要 url；"stdio" 需要 command。旧值 "http" 会规范化为 "streamable-http"。
+</ParamField>
+
+<ParamField body="environment.mcp_servers.url" type="string | null" default="null">
+  transport 为 "sse" 或 "streamable-http" 时的端点 URL（例如 Compose sidecar 使用 http://mcp-server:8000/mcp）。这些传输方式必须提供此项。
+</ParamField>
+
+<ParamField body="environment.mcp_servers.headers" type="object[string, string]" default="{}">
+  用于 "sse" 和 "streamable-http" 服务器的 HTTP（超文本传输协议） 请求标头。值支持 `${VAR}` 和 `${VAR:-default}` 引用，并在智能体启动时解析。凭据标头必须使用 `${VAR}` 引用。"stdio" 服务器不能使用标头。参见 [MCP](/tasks/environment#mcps)。
+</ParamField>
+
+<ParamField body="environment.mcp_servers.command" type="string | null" default="null">
+  transport 为 "stdio" 时要启动的可执行程序。stdio 模式必填。
+</ParamField>
+
+<ParamField body="environment.mcp_servers.args" type="list[string]" default="[]">
+  transport 为 "stdio" 时传递给 command 的参数。
+</ParamField>
+
+<ParamField body="environment.skills_dir" type="string | null" default="null">
+  环境中[技能目录](/tasks/skills)的路径。目录内容会注册到兼容的智能体。
+</ParamField>
+
+<ParamField body="environment.healthcheck" type="HealthcheckConfig | null" default="null">
+  环境启动后运行的可选健康检查配置块（省略整个 [environment.healthcheck] 节即可禁用）。设置后必须提供 command；其他字段使用下列默认值。
+</ParamField>
+
+<ParamField body="environment.healthcheck.command" type="string">
+  环境启动后用作健康检查的 Shell 命令。退出码为 0 表示健康。声明 [environment.healthcheck] 时必填。
+</ParamField>
+
+<ParamField body="environment.healthcheck.interval_sec" type="number" default="5">
+  两次健康检查之间的间隔秒数。
+</ParamField>
+
+<ParamField body="environment.healthcheck.timeout_sec" type="number" default="30">
+  单次健康检查命令允许的最长时间，单位为秒。
+</ParamField>
+
+<ParamField body="environment.healthcheck.start_period_sec" type="number" default="0">
+  环境启动后的宽限时间，单位为秒；此期间的失败不计入次数。
+</ParamField>
+
+<ParamField body="environment.healthcheck.start_interval_sec" type="number" default="5">
+  启动阶段各次检查之间的间隔秒数。
+</ParamField>
+
+<ParamField body="environment.healthcheck.retries" type="integer" default="3">
+  连续失败多少次后判定健康检查失败。
+</ParamField>
+
+<ParamField body="environment.workdir" type="string | null" default="null">
+  环境中执行命令时的默认工作目录。设置后会覆盖容器的 WORKDIR。
+</ParamField>
+
+### Artifacts {#artifacts}
+
+<ParamField body="artifacts" type="list[string | ArtifactConfig]" default="[]">
+  智能体运行后、验证开始前，从环境快照到 Trial 产物目录的根级路径。对于多步骤任务，这些路径会与 `[[steps]].artifacts` 一起纳入每个步骤的收集流程；参见[多步骤任务](/tasks/multi-step)。每项可以是容器路径字符串，也可以是包含 source / destination / exclude 的表。示例请参见[产物](/tasks/artifacts)。
+</ParamField>
+
+<ParamField body="artifacts.source" type="string">
+  要下载的容器路径（文件或目录）。表格条目必填；在 artifacts 列表中直接写字符串等同于只设置 source。
+</ParamField>
+
+<ParamField body="artifacts.destination" type="string | null" default="null">
+  Trial 产物目录下的相对路径。省略时，Harbor 根据 source 推导主机路径。
+</ParamField>
+
+<ParamField body="artifacts.exclude" type="list[string]" default="[]">
+  source 为目录时要排除的 Glob 模式（作为 tar --exclude 标志传递）。
+</ParamField>
+
+### Provenance {#provenance}
+
+<ParamField body="source" type="string | null" default="null">
+  用于记录任务来源的可选字符串。
+</ParamField>
+
+## 多步骤配置 {#multi-step-configuration}
+
+以上字段参考涵盖单步骤任务和共享的任务根目录设置。多步骤任务可添加 `[[steps]]` 条目，为每个步骤覆盖 `agent`、`verifier`、`healthcheck`、`min_reward` 和 `artifacts`。步骤字段、`workdir/setup.sh` 和 Trial 级奖励汇总方式请参见[多步骤任务](/tasks/multi-step)。
+
+## TOML 模板 {#toml-templates}
+
+创建任务时，可以通过 `--metadata-template` 标志指定 TOML 文件路径，预先填充 `task.toml` 中的元数据字段和默认配置：
+
+```bash
+harbor task init [org]/[name] --metadata-template task-template.toml
+```
+
+模板中的各节会覆盖 Harbor 内置默认值。新生成的任务默认设置 `verifier.environment_mode = "separate"`，除非模板另有指定；其他省略的设置使用上述默认值。
