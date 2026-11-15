@@ -1,0 +1,144 @@
+---
+title: "现有插件"
+description: "将 Harbor（智能体评测框架） Job（任务运行集合）连接到可观测性平台。"
+---
+
+Job 插件在 Harbor 进程中运行，并响应 Job 和 Trial（单次运行）事件。运行时通过 `--plugin` 传入插件；插件不会存储在 `config.json` 中。
+
+<Note>
+  请在与 Harbor 相同的 Python（编程语言） 环境中安装插件。插件凭据属于[Harbor 进程变量](/jobs/environment-variables)，而非 Agent（智能体）环境变量。
+</Note>
+
+## 发现插件 {#discover-plugins}
+
+已安装的软件包会注册一个简短的插件名称。使用以下命令列出插件：
+
+```bash
+harbor plugins list
+```
+
+Harbor 提供两个官方插件：`langsmith` 和 `atif2otel`。`harbor plugins list` 会显示 Harbor 当前运行环境中已安装的插件。源码检出版本可能已将这两个插件作为可编辑工作区软件包包含在内；通过 PyPI（Python 软件包索引） 安装则必须额外安装所需插件包。
+
+你也可以将完整的 `module:Class` 导入路径传给 `--plugin`。
+
+## LangSmith（智能体观测与评估平台） {#langsmith}
+
+[LangSmith](https://www.langchain.com/langsmith/observability) 插件会将 Harbor Task（任务）同步到 LangSmith 数据集，并将每个 Job 记录为一次实验。
+
+```bash
+uv tool install "harbor[langsmith]"
+```
+
+```bash
+export OPENAI_API_KEY="..."
+export LANGSMITH_API_KEY="..."
+
+harbor run \
+  -t hello-world/hello-world \
+  -a codex -m openai/gpt-5.6-sol \
+  --plugin langsmith \
+  --pk dataset_name=harbor-evals \
+  --pk experiment_name=codex-baseline
+```
+
+<Frame caption="LangSmith 中的 Harbor 实验">
+  <img
+    src="/images/langsmith-experiments.jpeg"
+    alt="LangSmith 展示 Harbor 实验，包括奖励、延迟、令牌和错误指标"
+  />
+</Frame>
+
+<Accordion title="LangSmith 选项">
+  | 选项 | 环境变量 |
+  | --- | --- |
+  | `dataset_name` | `HARBOR_LANGSMITH_DATASET` |
+  | `experiment_name` | `HARBOR_LANGSMITH_EXPERIMENT` |
+  | `experiment_id` | `HARBOR_LANGSMITH_EXPERIMENT_ID` |
+  | `endpoint` | `LANGSMITH_ENDPOINT` |
+  | `workspace_id` | `LANGSMITH_WORKSPACE_ID` |
+  | `sync_dataset` | `HARBOR_LANGSMITH_SYNC_DATASET` |
+  | `fail_fast` | `HARBOR_LANGSMITH_FAIL_FAST` |
+
+  也可以使用 `api_key`，但建议通过 `LANGSMITH_API_KEY` 提供凭据。
+</Accordion>
+
+请参阅 [LangSmith 文档](https://docs.langchain.com/langsmith/harbor-integrations)和[发布公告](https://x.com/LangChain/status/2071972238128005278)。
+
+## ATIF（智能体轨迹交换格式） 到 OpenTelemetry（遥测数据标准与工具） {#atif-to-opentelemetry}
+
+ATIF-to-OpenTelemetry 插件会将每个 Agent 的 [ATIF **轨迹**](/agents/atif)转换为 [OpenTelemetry](https://opentelemetry.io/) span。
+
+它会将 `agent/trajectory.json` 转换为模型调用、工具调用和子 Agent 对应的 span。
+
+```bash
+uv tool install --with harbor-atif2otel harbor
+```
+
+<Tabs>
+  <Tab title="写入文件">
+    Job 结束后导出所有 Trial：
+
+    ```bash
+    export OPENAI_API_KEY="..."
+
+    harbor run \
+      -t hello-world/hello-world \
+      -a codex -m openai/gpt-5.6-sol \
+      --plugin atif2otel \
+      --pk output_dir=./otel-traces \
+      --pk encoding=json
+    ```
+  </Tab>
+
+  <Tab title="流式传输到 MLflow">
+    内置上传器会在每个 Trial 结束时将其导出到 MLflow 服务器：
+
+    ```bash
+    export OPENAI_API_KEY="..."
+    export MLFLOW_TRACKING_TOKEN="..."
+
+    harbor run \
+      -t hello-world/hello-world \
+      -a codex -m openai/gpt-5.6-sol \
+      --plugin atif2otel \
+      --pk endpoint=https://mlflow.example.com \
+      --pk experiment_name=harbor-evals
+    ```
+  </Tab>
+</Tabs>
+
+<Accordion title="ATIF-to-OpenTelemetry 选项">
+  | 选项 | 环境变量 | Default |
+  | --- | --- | --- |
+  | `endpoint` | `OTEL_EXPORTER_OTLP_ENDPOINT` | — |
+  | `output_dir` | `HARBOR_OTEL_OUTPUT_DIR` | — |
+  | `experiment_name` | `MLFLOW_EXPERIMENT_NAME` | Job 名称 |
+  | `token` | `MLFLOW_TRACKING_TOKEN` | `""` |
+  | `workspace` | — | `default` |
+  | `encoding` | — | `json` |
+  | `mode` | — | `auto` |
+
+  设置 `endpoint` 时，`mode=auto` 会进行流式传输；设置 `output_dir` 时会写入文件。两者都设置即可同时启用两种输出。
+</Accordion>
+
+请参阅[插件源码](https://github.com/harbor-framework/harbor/tree/main/packages/harbor-atif2otel)。
+
+## 使用多个插件 {#use-multiple-plugins}
+
+`--plugin` 和 `--plugin-kwarg` 可以重复指定。使用多个插件时，每个 kwarg 都要加上对应的插件名称前缀：
+
+```bash
+harbor run ... \
+  --plugin langsmith \
+  --plugin atif2otel \
+  --pk langsmith.experiment_name=codex-baseline \
+  --pk atif2otel.output_dir=./otel-traces
+```
+
+使用 Job 配置运行时，请将插件标志保留在命令行中：
+
+```bash
+harbor run --config config.json --plugin langsmith
+```
+
+如需构建其他集成，请参阅[自定义插件](/plugins/custom-plugins)。

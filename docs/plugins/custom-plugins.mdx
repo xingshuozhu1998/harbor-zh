@@ -1,0 +1,70 @@
+---
+title: "自定义插件"
+description: "围绕 Harbor（智能体评测框架） 任务和 Trial（单次运行） 运行自定义逻辑。"
+---
+
+Harbor 在内部使用插件接口支持 [Harbor Hub（任务与结果共享平台）](https://hub.harborframework.com)。其[上传插件](https://github.com/harbor-framework/harbor/blob/main/src/harbor/cli/plugins/harbor_hub.py)会持续上传已完成的 Trial，并完成任务收尾。
+
+自定义插件使用相同接口实现本地或私有集成。它们在 Harbor 进程中运行，响应任务和 Trial 事件，并在运行时传入，而不是保存在 `config.json` 中。
+
+## 生命周期 {#lifecycle}
+
+| 方法 | 运行时机 |
+| --- | --- |
+| `on_job_start(job)` | 任务运行前。可在此初始化客户端或注册 Trial 回调。 |
+| `on_job_end(job_result)` | 任务结束后。可在此刷新、上传或关闭资源。 |
+
+可用的 Trial 回调包括 `on_trial_started`、`on_environment_started`、`on_agent_started`、`on_agent_ended`、`on_verification_started`、`on_trial_ended` 和 `on_trial_cancelled`。
+
+## 实现插件 {#implement-a-plugin}
+
+Extend
+[`BaseJobPlugin`](https://github.com/harbor-framework/harbor/blob/main/src/harbor/models/job/plugin.py)
+并实现两个生命周期方法。如果插件需要逐 Trial 事件，请在 `on_job_start` 中注册 Trial 回调。
+
+```python trial_logger.py
+from harbor.job import Job
+from harbor.models.job.plugin import BaseJobPlugin
+from harbor.models.job.result import JobResult
+from harbor.trial.hooks import TrialHookEvent
+
+
+class TrialLoggerPlugin(BaseJobPlugin):
+    def __init__(self, prefix: str = "trial") -> None:
+        self.prefix = prefix
+
+    async def on_job_start(self, job: Job) -> None:
+        job.on_trial_ended(self._on_trial_ended)
+
+    async def _on_trial_ended(self, event: TrialHookEvent) -> None:
+        print(f"{self.prefix}: {event.trial_name}")
+
+    async def on_job_end(self, job_result: JobResult) -> None:
+        print(f"job finished: {len(job_result.trial_results)} trials")
+```
+
+<Note>
+  插件在沙箱外运行。请将插件及其依赖安装到 Harbor 所在的同一 Python（编程语言） 环境中。Harbor 进程变量与沙箱变量的区别请参见[环境变量](/jobs/environment-variables)。
+</Note>
+
+## 运行自定义插件 {#run-a-custom-plugin}
+
+自定义插件无需注册名称。将 `module.path:ClassName` 传给 `--plugin`。例如，`trial_logger.py` 中的 `TrialLoggerPlugin` 应使用 `trial_logger:TrialLoggerPlugin`。
+
+```bash
+export OPENAI_API_KEY="..."
+harbor run \
+  -t hello-world/hello-world \
+  -a codex -m openai/gpt-5.6-sol \
+  --plugin trial_logger:TrialLoggerPlugin \
+  --plugin-kwarg prefix=completed
+```
+
+`--plugin-kwarg`（`--pk`）用于向插件传递构造函数选项。`--plugin` 和 `--pk` 均可重复指定。多个插件的语法请参见[使用多个插件](/plugins/existing-plugins#use-multiple-plugins)。
+
+## 示例 {#examples}
+
+See Harbor's
+[plugin packages](https://github.com/harbor-framework/harbor/tree/main/packages)
+查看更多实现。第三方集成指南请参见
+[Braintrust](https://www.braintrust.dev/docs/integrations/sdk-integrations/harbor).

@@ -1,0 +1,94 @@
+---
+title: "内置评估标准"
+description: "所有内置评估标准函数参考。"
+---
+
+Rewardkit（奖励验证工具库）内置了常见评分细则所需的评估标准。你可以在测试目录中的任意 Python（编程语言） 文件里使用：
+
+```python
+import rewardkit as rk
+
+rk.file_exists("output.txt")
+rk.command_succeeds("python main.py", weight=2.0)
+```
+
+除下列参数外，所有标准都接受可选参数 `weight`（默认值 `1.0`）和 `isolated`（默认值 `false`）。
+
+## 文件标准 {#file-criteria}
+
+| 标准 | 参数 | 说明                                                               |
+| --------------------- | ---------------- | ------------------------------------------------------------------------- |
+| `file_exists`         | `path`           | 文件存在于工作区中                                                  |
+| `file_not_exists`     | `path`           | 文件不存在                                                       |
+| `file_contains`       | `path, text`     | 文件包含指定子字符串                                                 |
+| `file_contains_regex` | `path, pattern`  | 文件内容匹配正则表达式模式                                      |
+| `file_matches`        | `path, expected` | 文件内容与预期文本相同（去除空白后比较）                   |
+| `files_equal`         | `path1, path2`   | 两个文件内容相同                                          |
+| `diff_ratio`          | `path, expected` | 文件内容与预期文本的相似度（返回 0.0–1.0） |
+
+## 命令标准 {#command-criteria}
+
+| Criterion                      | Parameters                      | Description                               |
+| ------------------------------ | ------------------------------- | ----------------------------------------- |
+| `command_succeeds`             | `cmd, cwd?, timeout?`           | 命令以退出码 0 结束                 |
+| `command_output_contains`      | `cmd, text, cwd?, timeout?`     | 命令标准输出包含指定文本              |
+| `command_output_matches`       | `cmd, expected, cwd?, timeout?` | 命令标准输出与预期内容相同（去除空白后比较） |
+| `command_output_matches_regex` | `cmd, pattern, cwd?, timeout?`  | 命令标准输出匹配正则表达式            |
+
+默认超时时间为 30 秒。`cwd` 参数是相对于工作区的路径。
+
+## 数据格式标准 {#data-format-criteria}
+
+| Criterion             | Parameters                     | Description                                 |
+| --------------------- | ------------------------------ | ------------------------------------------- |
+| `json_key_equals`     | `path, key, expected`          | JSON（结构化数据格式） 顶层键与指定值相等           |
+| `json_path_equals`    | `path, json_path, expected`    | JSON 中以点分隔的路径对应值与指定值相等 |
+| `csv_cell_equals`     | `path, row, col, expected`     | CSV（逗号分隔值格式） 指定行列的单元格与指定值相等          |
+| `xlsx_cell_equals`    | `path, cell, expected, sheet?` | Excel 单元格与指定值相等                   |
+| `sqlite_query_equals` | `db_path, query, expected`     | SQL 查询结果与指定值相等             |
+
+<Note>
+  `xlsx_cell_equals` 需要安装 `documents` extra：`uv tool install harbor-rewardkit[documents]`
+</Note>
+
+<Note>
+  对于 `csv_cell_equals`，行编号取决于列类型。`col` 为**整数**时使用原始 CSV 读取器，行 0 是标题行；`col` 为**字符串**（列名）时，行 0 是标题行之后的第一条数据。
+</Note>
+
+## HTTP（超文本传输协议） 标准 {#http-criteria}
+
+| Criterion                | Parameters               | Description                                              |
+| ------------------------ | ------------------------ | -------------------------------------------------------- |
+| `http_status_equals`     | `url, status?, timeout?` | HTTP 响应状态码符合预期（默认值 200） |
+| `http_response_contains` | `url, text, timeout?`    | HTTP 响应正文包含指定文本                         |
+
+默认超时时间为 10 秒。
+
+## 图像标准 {#image-criteria}
+
+| Criterion           | Parameters            | Description                                    |
+| ------------------- | --------------------- | ---------------------------------------------- |
+| `image_similarity`  | `path1, path2`        | 像素级相似度（返回 0.0–1.0） |
+| `image_size_equals` | `path, width, height` | 图像尺寸符合预期              |
+
+<Note>
+  图像标准需要安装 `image` extra： `uv tool install harbor-rewardkit[image]`
+</Note>
+
+## 轨迹标准 {#trajectory-criteria}
+
+这些标准会检查智能体的 ATIF（智能体轨迹交换格式）轨迹文件（默认路径：`/logs/agent/trajectory.json`）。
+
+| Criterion                  | Parameters                     | Description                                                                                      |
+| -------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `trajectory_tool_used`     | `tool_name, min_count?, path?` | 智能体至少使用指定工具 `min_count` 次（默认值为 1）                                |
+| `trajectory_tool_not_used` | `tool_name, path?`             | 智能体未使用指定工具                                                                |
+| `trajectory_turn_count`    | `max_turns, path?`             | 超出轮次预算时扣分：在 `max_turns` 时返回 1.0，达到其两倍时线性降至 0.0  |
+
+## 可选依赖 {#optional-extras}
+
+| 依赖 | 标准 | 安装                                        |
+| ----------- | --------------------------------------- | ---------------------------------------------- |
+| `documents` | `xlsx_cell_equals`                      | `uv tool install harbor-rewardkit[documents]`  |
+| `image`     | `image_similarity`, `image_size_equals` | `uv tool install harbor-rewardkit[image]`      |
+| `all`       | 以上全部标准                        | `uv tool install harbor-rewardkit[all]`        |

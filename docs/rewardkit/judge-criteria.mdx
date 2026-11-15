@@ -1,0 +1,377 @@
+---
+title: "评审标准"
+description: "使用 TOML（配置文件格式） 配置 LLM 或智能体评审器，为任务评分。"
+---
+
+评审标准允许使用 LLM 或智能体评审器为任务评分。它们通过 TOML 文件配置，便于在不同任务间复用和共享评分细则。
+
+## LLM 评审器 {#llm-judge}
+
+```toml title="tests/quality.toml"
+[judge]
+judge = "anthropic/claude-opus-5-5"
+files = ["/app/main.py", "/app/utils.py"]
+
+[[criterion]]
+description = "Is the code correct?"
+type = "binary"
+
+[[criterion]]
+description = "How readable is the code?"
+type = "likert"
+points = 5
+weight = 2.0
+
+[[criterion]]
+description = "Rate the test coverage on a scale from 0 to 100"
+type = "numeric"
+min = 0
+max = 100
+```
+
+`judge` 字段接受任意 [LiteLLM（统一模型调用库） 模型字符串](https://docs.litellm.ai/docs/providers)。运行时可以覆盖该值，无需修改评分细则。参见[Provider 路由](#provider-routing)。
+
+## 智能体评审器 {#agent-judge}
+
+智能体评审器可以浏览文件系统并运行命令，为任务评分。
+
+```toml title="tests/review.toml"
+[judge]
+judge = "claude-code"
+model = "anthropic/claude-opus-5-5"
+isolated = true
+
+[[criterion]]
+description = "Does the solution handle edge cases?"
+type = "binary"
+```
+
+### MCP（模型上下文协议） 服务器 {#mcp-servers}
+
+每个 `[[judge.mcp_servers]]` 条目对应 Harbor（智能体评测框架） 任务中的 `[[environment.mcp_servers]]`。每个服务器的 `allowed_tools` 用于列出评审器可以调用的工具；省略该字段则允许使用该服务器的所有工具。
+
+```toml title="tests/review.toml"
+[judge]
+judge = "claude-code"
+
+[[judge.mcp_servers]]
+name = "playwright"
+transport = "stdio"
+command = "npx"
+args = ["@playwright/mcp@latest", "--headless", "--isolated"]
+allowed_tools = ["navigate", "click"]
+
+[[criterion]]
+description = "Does the rendered page match the spec?"
+type = "binary"
+```
+
+<Note>Codex（OpenAI 编程智能体） 不支持 `sse` 服务器。</Note>
+
+## 单独评估模式 {#individual-mode}
+
+设置 `mode = "individual"`，即可每次评估一条标准，而不是将所有标准合并处理。LLM 评审器会为每条标准发起一次请求；智能体评审器会依次为每条标准运行一轮。LLM 评审器也可以为每条标准单独指定 `files`：
+
+```toml title="tests/quality.toml"
+[judge]
+judge = "anthropic/claude-opus-5-5"
+mode = "individual"
+
+[[criterion]]
+description = "Is the analysis correct?"
+files = ["/app/analysis.pdf"]
+
+[[criterion]]
+description = "Is the spreadsheet well-structured?"
+files = ["/app/data.xlsx"]
+```
+
+未设置 `files` 的标准会使用 `[judge].files`。
+
+如果评审器调用超时，Rewardkit（奖励验证工具库） 会将受影响的标准记为 `0.0`，并在 `reward-details.json` 中记录错误和警告。
+
+## 对评审器进行多次采样 {#sampling-the-judge}
+
+设置 `samples` 可多次运行评审器，并使用各条标准采样分数的中位数。`reward-details.json` 会列出每个采样的回答、产生有效分数的采样数量，以及 0 到 1 之间的 `agreement`。超时或持续返回无效结果的采样不会计入。
+
+```toml title="tests/quality.toml"
+[judge]
+judge = "anthropic/claude-opus-5-5"
+samples = 5
+```
+
+智能体评审器进行多次采样时必须启用[隔离](/rewardkit/quick-start#isolation)。传入 `--yolo` 可在不隔离的情况下运行。
+
+## 保护评审器 {#guarding-the-judge}
+
+`guard` 用于防范提示注入，即智能体在待评分文件中写入针对评审器的指令。评审器会被告知不要遵循评分文件中的指令，并在 `reward-details.json` 的 `guard` 项下报告是否发现此类内容。`flag` 只报告问题；`penalize` 还会将被标记的提交评分为 0。
+
+```toml title="tests/quality.toml"
+[judge]
+judge = "anthropic/claude-opus-5-5"
+guard = "penalize"
+```
+
+## Provider 路由 {#provider-routing}
+
+评审器会调用 LiteLLM，后者从环境变量读取凭据。你可以在调用时更改 provider，无需编辑评分细则：
+
+- `--je KEY=VALUE` 为本次运行设置环境变量，并且可以重复指定。
+- `--judge MODEL_OR_AGENT` 覆盖 `[judge].judge`。对应的环境变量是 `REWARDKIT_JUDGE`。
+- `--model MODEL` 覆盖智能体评审器的 `[judge].model`。对应的环境变量是 `REWARDKIT_MODEL`。
+- `--reasoning-effort LEVEL`（或 `--effort`）覆盖 `[judge].reasoning_effort`。对应的环境变量是 `REWARDKIT_REASONING_EFFORT`。该级别必须适用于本次运行中的所有 LLM 和智能体评审器。
+
+Harbor 用户可以通过 `--ve` 传递相同的环境变量。
+
+```bash
+rewardkit /tests \
+  --judge bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0 \
+  --je AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+  --je AWS_REGION_NAME=us-east-1
+
+rewardkit /tests \
+  --judge claude-code \
+  --model anthropic/claude-opus-5-5 \
+  --reasoning-effort high
+```
+
+[LiteLLM provider 文档](https://docs.litellm.ai/docs/providers)列出了各 provider 使用的环境变量。
+
+### 订阅身份验证 {#subscription-authentication}
+
+对于 Anthropic（模型服务提供商） LLM 评审器，如果环境中只有 Claude 订阅凭据，Rewardkit 会使用 Claude 订阅令牌。运行 `claude setup-token` 创建令牌，并设置 `CLAUDE_CODE_OAUTH_TOKEN`。如果同时设置了 `ANTHROPIC_API_KEY`，则优先使用 API（应用程序接口） 密钥。设置 `REWARDKIT_FORCE_SUBSCRIPTION=1` 可强制使用订阅令牌。
+
+对于 `codex` 智能体评审器，请设置 `OPENAI_API_KEY`，或将通过 ChatGPT 身份验证的 Codex `auth.json` 内容作为 `CODEX_AUTH_JSON` 传入。除非设置了 `REWARDKIT_FORCE_SUBSCRIPTION=1`，否则优先使用 API 密钥。
+
+## 配置参考 {#configuration-reference}
+
+在扫描测试目录时、运行任何评审器之前，会验证评审 TOML。未知键或未知值会导致错误。
+
+### `[judge]` 节 {#%5Bjudge%5D-section}
+
+<ParamField body="judge" type="string" default={'"anthropic/claude-opus-5-5"'}>
+  LiteLLM 模型名称（例如 `"anthropic/claude-opus-5-5"`）、智能体评审器名称（`"claude-code"`、`"codex"`、`"fx"`），或 `"jev"`。
+</ParamField>
+
+<ParamField body="model" type="string | null" default="null">
+  智能体评审器使用的 LLM；对于 JEV 评审器，则为 JEV 模型。
+</ParamField>
+
+<ParamField body="files" type="list[string]" default="[]">
+  要包含在评审提示中的工作区文件路径。
+</ParamField>
+
+<ParamField body="mode" type={'"batched" | "individual"'} default={'"batched"'}>
+  一次调用评估所有标准（`batched`），还是每条标准单独调用（`individual`）。
+</ParamField>
+
+<ParamField body="timeout" type="integer" default="300">
+  等待评审器响应的秒数。
+</ParamField>
+
+<ParamField
+  body="reasoning_effort"
+  type={
+    '"auto" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"'
+  }
+  default="null"
+>
+  评审器的推理力度。LLM 评审器接受 LiteLLM 支持的级别（默认 `medium`）；智能体评审器接受其 CLI（命令行界面） 支持的级别；`jev` 不接受此项。部分模型可能不支持所有级别。
+</ParamField>
+
+<ParamField body="isolated" type="boolean" default="false">
+  对于智能体评审器，通过 overlayfs 以只读方式挂载工作区。
+</ParamField>
+
+<ParamField body="cwd" type="string | null" default="null">
+  智能体评审器运行时使用的工作目录。启用 `isolated` 时，目录必须位于工作区中。
+</ParamField>
+
+<ParamField body="mcp_servers" type="list[table]" default="[]">
+  智能体评审器运行前要配置的 MCP 服务器。每项对应 Harbor 任务的 `[[environment.mcp_servers]]`，并额外支持每台服务器各自的 `allowed_tools` 允许列表。Codex 不支持 `sse` 服务器。
+</ParamField>
+
+<ParamField body="reference" type="string | null" default="null">
+  用于比较的参考解决方案文件路径。
+</ParamField>
+
+<ParamField body="atif-trajectory" type="string | null" default="null">
+  要包含在提示中的 ATIF（智能体轨迹交换格式） 轨迹 JSON（结构化数据格式） 路径。
+</ParamField>
+
+<ParamField body="weight" type="number" default="1.0">
+  将此评审器分数与同一目录中的其他分数合并时所使用的权重。
+</ParamField>
+
+<ParamField body="prompt_template" type="string | null" default="null">
+  自定义提示模板（`.md` 或 `.txt`）。必须包含 `{criteria}` 占位符。
+</ParamField>
+
+<ParamField body="samples" type="integer" default="1">
+  运行评审器的次数。
+</ParamField>
+
+<ParamField body="guard" type={'"off" | "flag" | "penalize"'} default={'"off"'}>
+  防止评审器遵循智能体写入待评分文件的指令。`penalize` 还会将被标记的提交评分为 0。
+</ParamField>
+
+<ParamField body="on-error" type={'"fail" | "drop"'} default={'"fail"'}>
+  评审采样因超时、重试后仍返回无效回答或智能体失败而没有有效分数时的处理方式。`fail` 会在某条标准没有有效采样时停止运行且不写入奖励，因此验证器报告失败而不是分数。`drop` 会忽略该采样，并将没有有效采样的标准记为 0。
+</ParamField>
+
+<ParamField
+  body="response-format"
+  type={'"json-schema" | "json-object" | "none"'}
+  default={'"json-schema"'}
+>
+  对 LLM 评审器而言，此项决定如何约束响应：严格 JSON schema、仅支持 JSON 模式的端点使用 JSON 模式，或只受提示约束而不额外限制。所有模式下都会以相同方式解析响应并进行重试。与标准不匹配的分数（例如评分细则中的 `1.5` 或二元标准的 `"maybe"`）会触发重试。
+</ParamField>
+
+### `[[criterion]]` 条目 {#%5B%5Bcriterion%5D%5D-entries}
+
+<ParamField body="description" type="string" required>
+  要评估的内容。此文本会发送给评审器。
+</ParamField>
+
+<ParamField
+  body="type"
+  type={'"binary" | "likert" | "numeric" | "rubric"'}
+  default={'"binary"'}
+>
+  输出格式。
+</ParamField>
+
+<ParamField body="name" type="string | null" default="null">
+  此标准的标识符。省略时根据 `description` 自动生成。
+</ParamField>
+
+<ParamField body="id" type="string | null" default="null">
+  稳定的评分细则标识符，会保留在 `reward-details.json` 中用于追溯（例如 `"1.1"`、`"2.3"`）。它独立于 `name`，即使重写描述也会保持不变。
+</ParamField>
+
+<ParamField body="points" type="integer" default="5">
+  `likert` 类型的量表等级数。
+</ParamField>
+
+<ParamField body="min" type="number" default="0.0">
+  `numeric` 类型的最小值。
+</ParamField>
+
+<ParamField body="max" type="number" default="1.0">
+  `numeric` 类型的最大值。
+</ParamField>
+
+<ParamField body="levels" type="list[string]" default="[]">
+  `rubric` 类型的等级说明，按从低到高排列。必须有 2 到 10 项。
+</ParamField>
+
+<ParamField body="weight" type="number" default="1.0">
+  分数聚合时使用的重要性乘数。负权重可用于惩罚标准，并要求 `aggregation = "weighted-sum"`。
+</ParamField>
+
+<ParamField body="files" type="list[string]" default="[]">
+  此标准限定使用的文件。要求 `[judge].mode = "individual"`。省略时回退到 `[judge].files`。
+</ParamField>
+
+<ParamField body="negate" type="boolean" default="false">
+  反转归一化后的分数。用于描述答案不应表现出的行为。参见[取反标准](#negated-criteria)。
+</ParamField>
+
+<ParamField body="optional" type="boolean" default="false">
+  使用 `aggregation = "required-pass"` 时，将此标准排除在门槛判断之外。
+</ParamField>
+
+### `[scoring]` 节 {#%5Bscoring%5D-section}
+
+控制如何将评审标准汇总为单个分数。此设置仅影响当前 TOML 文件中的标准，不会改变目录范围内程序化分数和评审分数的合并方式。
+
+```toml
+[scoring]
+aggregation = "all-pass"  # weighted-mean | weighted-sum | all-pass | any-pass | threshold | required-pass
+threshold = 0.7           # only used with "threshold" aggregation
+```
+
+`all-pass`、`any-pass` 和 `required-pass` 只在标准分数为 `1.0` 时判定通过，因此 Likert 回答必须达到最高分。所有模式请参见[分数合并方式](/rewardkit/quick-start#how-scores-are-combined)。
+
+只有每条非 `optional` 标准都通过时，`required-pass` 才返回 `1.0`；`optional` 标准不会影响门槛判断。如果没有非 optional 标准，则会发出警告并评分为 `0.0`。
+
+`weighted-sum` 不做归一化，计算 `sum(value × weight)`。它是唯一接受负权重的聚合方式，结果可能超出 `[0, 1]`。
+
+## 分数归一化 {#score-normalization}
+
+- **二元**：yes/true/1 → 1.0，其他值 → 0.0
+- **Likert**：按 `(raw - 1) / (points - 1)` 归一化到 \[0, 1\]
+- **数值**：按 `(raw - min) / (max - min)` 归一化到 \[0, 1\]
+- **评分细则**：等级从 0 开始编号，按 `raw / (levels - 1)` 归一化到 \[0, 1\]
+
+Likert、数值或评分细则分数超出范围时，回答无效：系统会重新运行评审器；仍无效的采样按 `on-error` 处理。
+
+## 取反标准 {#negated-criteria}
+
+如果某条标准描述答案**不应**表现出的行为，请设置 `negate = true`。评审器照常评分，随后反转分数（`value → 1 - value`）：行为存在时为 0.0，不存在时为 1.0。原始评审回答会保存在 `reward-details.json` 中，以便审计反转过程。
+
+```toml
+[[criterion]]
+description = "States there is no task execution history tracking in the database"
+type = "binary"
+negate = true   # the answer should NOT make this (false) claim
+```
+
+## 轨迹评估 {#trajectory-evaluation}
+
+如果要评估智能体的过程，而不只是输出，请将轨迹文件提供给评审器：
+
+```toml
+[judge]
+judge = "anthropic/claude-opus-5-5"
+atif-trajectory = "/logs/agent/trajectory.json"
+files = ["/app/main.py"]
+
+[[criterion]]
+description = "Did the agent take an efficient approach?"
+type = "likert"
+points = 5
+```
+
+轨迹内容会按比例截断以适应模型上下文窗口，同时保留所有步骤。
+
+## 自定义提示模板 {#custom-prompt-templates}
+
+你可以提供自定义提示，替代内置提示：
+
+```toml
+[judge]
+judge = "anthropic/claude-opus-5-5"
+prompt_template = "my_prompt.md"
+```
+
+模板必须包含 `{criteria}` 占位符，用于插入标准说明。
+
+## JEV 评审器 {#jev-judge}
+
+[JEV](https://docs.typesafe.ai) 是 TypeSafe 推出的一种新型语言模型。它针对每条标准返回概率或评分细则分数，不提供推理过程，因此速度快、成本低。使用时需要安装 `jev` extra（`uv tool install harbor-rewardkit[jev]`）并设置 `TYPESAFE_API_KEY`：
+
+```toml title="tests/quality.toml"
+[judge]
+judge = "jev"
+files = ["/app/answer.md"]
+
+[[criterion]]
+description = "Does the answer address the requested task?"
+type = "binary"
+
+[[criterion]]
+description = "How complete is the answer?"
+type = "rubric"
+levels = [
+  "Omits the requested information",
+  "Provides some requested information but misses important details",
+  "Provides all requested information",
+]
+```
+
+二元标准的概率达到 0.5 或更高时评分为 1.0。评分细则 `levels` 必须按从差到好的顺序排列，因为列表位置决定分数。原始概率或分数会保存在 `reward-details.json` 中。
+
+JEV 只评估文本文件，并支持 `binary` 和 `rubric` 标准。不支持 `atif-trajectory` 和 `prompt_template`。所有文件和最长的标准必须能放入 32k token；任务镜像还需要 CA 证书（Debian（Linux 发行版） 和 Ubuntu（Linux 发行版） 上的软件包为 `ca-certificates`）。
+
+如需通过 LiteLLM 代理或 Vercel AI Gateway 路由，请将 `TYPESAFE_BASE_URL` 设为网关的 TypeSafe 端点，并将 `TYPESAFE_API_KEY` 设为网关密钥。使用 Vercel 时还需设置 `model = "typesafe-ai/jev"`。

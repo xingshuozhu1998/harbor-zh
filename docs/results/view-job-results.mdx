@@ -1,0 +1,107 @@
+---
+title: "查看任务结果"
+description: "在本地浏览任务、检查 Trial（单次运行） 并比较结果。"
+---
+
+Harbor（智能体评测框架） 提供本地网页查看器，用于查看任务和 Trial 结果。
+
+## 启动查看器 {#start-the-viewer}
+
+将查看器指向任务目录：
+
+```bash
+harbor view jobs
+```
+
+Harbor 会使用 `8080` 到 `8089` 之间第一个可用端口，并显示查看器 URL。默认地址为 `http://127.0.0.1:8080`。
+
+需要时可以指定其他结果目录或端口：
+
+```bash
+harbor view /path/to/jobs --port 9000
+```
+
+<Note>
+  查看器打开期间，请保持该命令运行。
+</Note>
+
+首页显示任务列表。
+<Frame caption="浏览任务">
+  <img
+    src="/images/viewer-jobs.png"
+    alt="Harbor 查看器任务列表，包含搜索、筛选器和结果列"
+  />
+</Frame>
+点击任务即可查看 Trial 详情。
+<Frame caption="检查 Trial 的轨迹、奖励、成本和耗时">
+  <img
+    src="/images/viewer-trial-overview.png"
+    alt="Trial 视图，显示奖励、成本、令牌数、耗时和轨迹"
+  />
+</Frame>
+
+## 键盘快捷键 {#keyboard-shortcuts}
+
+| 视图 | 按键 |
+| --- | --- |
+| 任务和任务列表 | 使用 `j` / `k` 导航，按 `Enter` 打开，按 `Esc` 返回 |
+| Trial | 使用 `←` / `→` 切换 Trial |
+| Trial | 使用 `Shift` + `←` / `→` 切换任务 |
+| Trial | 使用 `Alt`（macOS（苹果桌面操作系统） 上为 `Option`）+ `←` / `→` 切换标签页 |
+
+
+### Trial 文件 {#trial-files}
+智能体、验证器和产物收集生成的文件都可以在 Trial 查看器中查看。查看器会显示文件树和文本文件预览，你可以下载任意文件。
+<Tabs>
+  <Tab title="Agent">
+    <Frame caption="智能体输出">
+      <img
+        src="/images/viewer-agent-files.png"
+        alt="Trial 查看器中的智能体文件和轨迹 JSON（结构化数据格式）"
+      />
+    </Frame>
+  </Tab>
+  <Tab title="Verifier">
+    <Frame caption="验证器输出">
+      <img
+        src="/images/viewer-verifier-files.png"
+        alt="Trial 查看器中的验证器文件和测试输出"
+      />
+    </Frame>
+  </Tab>
+  <Tab title="Artifacts">
+    <Frame caption="已收集的产物">
+      <img
+        src="/images/viewer-artifacts.png"
+        alt="Trial 查看器中的产物文件和收集清单"
+      />
+    </Frame>
+  </Tab>
+  <Tab title="Config">
+    <Frame caption="Trial 配置">
+      <img
+        src="/images/viewer-trial-config.png"
+        alt="Trial 查看器中解析后的 Trial 配置"
+      />
+    </Frame>
+  </Tab>
+  <Tab title="Lock">
+    <Frame caption="Trial 锁定信息">
+      <img
+        src="/images/viewer-trial-lock.png"
+        alt="可重放的 Trial 锁定信息"
+      />
+    </Frame>
+  </Tab>
+</Tabs>
+
+## 从查看器启动任务 {#run-from-the-viewer}
+
+点击左上角的 **New run**，无需编写 CLI（命令行界面） 命令即可配置并启动任务。也可以直接访问 http://127.0.0.1:8080/run。使用 `←`、`→` 加载上一个或下一个任务配置。
+
+<Frame caption="配置新的运行">
+  <img
+    src="/images/viewer-new-run.png"
+    alt="用于配置并启动新运行的 Harbor 查看器表单"
+  />
+</Frame>
