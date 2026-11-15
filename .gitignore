@@ -1,0 +1,5 @@
+node_modules/
+.build/
+docs/images/
+docs/videos/
+docs/*.png

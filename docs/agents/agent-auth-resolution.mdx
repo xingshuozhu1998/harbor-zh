@@ -1,0 +1,543 @@
+---
+title: "智能体身份验证解析"
+description: "为智能体选择模型、密钥、端点和 API（应用程序接口） 格式。"
+---
+
+import { ModelLookup } from "/snippets/model-lookup.jsx";
+
+## 模型名称解析 {#model-name-parsing}
+
+Harbor（智能体评测框架）会在设置期间使用 LiteLLM（统一模型调用库） 解析模型标识。**所有智能体都应使用相同的 LiteLLM 模型标识**。
+
+浏览 [Harbor 模型查询](https://harbortoolkit.com/model?model=openai%2Fgpt-6-sol)，或在下方输入模型名称，查看其提供方和解析后的模型名称。
+
+<ModelLookup endpoint="https://harbortoolkit.com/resolve" />
+
+<Note>
+- **输入模型 (`-m`)** → 你提供的原始模型名称。
+- **解析后的提供方** → 用于选择 Harbor 内置的凭据和端点映射。
+- **解析后的模型 ID** → 通常会发送给推理提供方；适配器可能会对其进行转换。
+</Note>
+
+试用 `openai/gpt-6-sol`、`openrouter/openai/gpt-6-sol`、
+`anthropic/claude-sonnet-5-5`、`deepseek/deepseek-v4-flash` 或
+`fireworks_ai/accounts/my-account/models/my-custom-model`。
+
+LiteLLM 无法解析的模型标识会直接传递给智能体。之后，各智能体适配器可以根据模型标识推断提供方。
+
+## 自动收集密钥 {#automatic-secret-collection}
+
+对于已识别的[提供方](https://harbortoolkit.com/model?model=openai%2Fgpt-6-sol)和内置[智能体](https://harbortoolkit.com/agent?agent=codex)，Harbor 支持从主机环境变量中自动收集密钥。此行为因智能体和提供方而异，不相关的主机变量不会被转发。
+
+请查看智能体的[身份验证设置](#inspecting-agent-auth-settings)。
+
+<div className="run-examples">
+<Tabs sync={false}>
+  <Tab title="提供方匹配">
+    ```bash
+    export OPENROUTER_API_KEY="sk-or-v1-...1234"
+    export HF_TOKEN="hf_...3456"
+    harbor run \
+      -t hello-world/hello-world \
+      --agent codex \
+      --model openrouter/openai/gpt-5.6-sol \
+    ```
+
+    <div className="run-example">
+    <Accordion title="查看已收集的密钥" id="codex-collected-secrets">
+
+      ```text nocopy
+      Collected from host: OPENROUTER_API_KEY
+      Not forwarded to agent: HF_TOKEN
+      ```
+
+    </Accordion>
+    </div>
+  </Tab>
+  <Tab title="智能体匹配">
+    ```bash
+    export ANTHROPIC_API_KEY="sk-ant-api03-...9012"
+    harbor run \
+      -t hello-world/hello-world \
+      --agent claude-code \
+      --model vercel_ai_gateway/z-ai/glm-5.3
+    ```
+
+    <div className="run-example">
+    <Accordion title="查看已收集的密钥" id="claude-collected-secrets">
+
+      ```text nocopy
+        Collected from host: ANTHROPIC_API_KEY
+      ```
+
+    </Accordion>
+    </div>
+  </Tab>
+  <Tab title="显式提供">
+    ```bash
+    harbor run \
+      -t hello-world/hello-world \
+      --agent mini-swe-agent \
+      --model openai/gpt-6-sol \
+      --agent-env OPENAI_API_KEY="sk-proj-...5678"
+    ```
+
+    <div className="run-example">
+    <Accordion title="查看已收集的密钥" id="cursor-collected-secrets">
+
+      ```text nocopy
+        Collected from --agent-env: OPENAI_API_KEY
+      ```
+
+    </Accordion>
+    </div>
+  </Tab>
+</Tabs>
+</div>
+
+<Accordion title="常见的自动密钥收集规则">
+| 提供方 | 可识别的主机变量 |
+| --- | --- |
+| `openai`, `openai-responses` | `OPENAI_API_KEY` |
+| `anthropic` | `ANTHROPIC_API_KEY` |
+| `openrouter` | `OPENROUTER_API_KEY` |
+| `gemini`, `google` | `GOOGLE_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY` |
+| `azure` | `AZURE_API_KEY`, `AZURE_OPENAI_API_KEY` |
+| `amazon-bedrock`, `bedrock` | `AWS_BEARER_TOKEN_BEDROCK` 以及标准 AWS（Amazon 云服务） 凭据变量 |
+| `vercel_ai_gateway`, `vercel` | `VERCEL_AI_GATEWAY_API_KEY`, `AI_GATEWAY_API_KEY` |
+| `meta` | `META_API_KEY`, `MODEL_API_KEY` |
+| `xai` | `XAI_API_KEY` |
+| `mistral` | `MISTRAL_API_KEY` |
+| `deepseek` | `DEEPSEEK_API_KEY` |
+| `groq` | `GROQ_API_KEY` |
+| `kimi` | `KIMI_API_KEY`, `MOONSHOT_API_KEY` |
+| `moonshot` | `MOONSHOT_API_KEY` |
+| `huggingface` | `HF_TOKEN`, `HUGGINGFACE_API_KEY` |
+| `together`, `together_ai` | `TOGETHER_API_KEY`, `TOGETHERAI_API_KEY` |
+| `fireworks_ai` | `FIREWORKS_API_KEY` |
+| `nvidia` | `NVIDIA_API_KEY` |
+| `opencode` | `OPENCODE_API_KEY` |
+
+
+除提供方变量外，还会识别以下智能体专用变量。
+
+| 智能体 | 可识别的主机变量 |
+| --- | --- |
+| `codex` | `OPENAI_API_KEY`, `CODEX_API_KEY` |
+| `claude-code` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` |
+| `gemini-cli` | `GEMINI_API_KEY` |
+| `antigravity-cli` | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
+| `antigravity-sdk` | `GEMINI_API_KEY` |
+| `copilot-cli` | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`；自定义提供方使用 `COPILOT_PROVIDER_API_KEY`, `COPILOT_PROVIDER_BEARER_TOKEN` |
+| `cursor-cli` | `CURSOR_API_KEY` |
+| `fx` | `AI_GATEWAY_API_KEY`, `VERCEL_AI_GATEWAY_API_KEY`, `VERCEL_OIDC_TOKEN` |
+| `muse-code` | `META_API_KEY` |
+| `openhands`, `openhands-sdk` | `LLM_API_KEY` |
+| `mini-swe-agent` | `MSWEA_API_KEY` |
+| `goose`, `mimo`, `opencode`, `pi`, `qwen-coder`, `trae-agent`, `opencode-v2` | `OPENAI_API_KEY` |
+
+  ACP（智能体客户端协议） 注册表中的智能体不会使用此自动转发功能；请始终使用 `--agent-env` 传递其凭据。
+</Accordion>
+
+## 自动路由密钥 {#automatic-secret-routing}
+
+对于内置智能体，Harbor 会自动将模型提供方的密钥映射到智能体所需的 API 密钥变量名称。因此，即使 Codex（OpenAI 编程智能体） 读取的是 `OPENAI_API_KEY`，你仍可以使用 `OPENROUTER_API_KEY`；Harbor 会替你完成名称映射。
+
+例如，使用 OpenRouter（模型服务聚合平台） 和 Codex 时，**Codex 只会从** `OPENAI_API_KEY` 读取 API 密钥。Harbor 会将 `OPENROUTER_API_KEY` 的值赋给 `OPENAI_API_KEY`，以便 Codex 使用 OpenRouter 进行身份验证。
+
+这样你就可以在多个智能体之间共用一个提供方密钥（例如 `OPENROUTER_API_KEY`），无需了解每个智能体原生的凭据变量名称。这对于使用相同模型和提供方比较不同智能体的基准测试尤其有用。
+
+<div className="run-examples">
+<Tabs sync={false}>
+  <Tab title="提供方匹配">
+    ```bash
+    export OPENROUTER_API_KEY="sk-or-v1-...1234"
+    export HF_TOKEN="hf_...3456"
+    harbor run \
+      -t hello-world/hello-world \
+      --agent codex \
+      --model openrouter/openai/gpt-5.6-sol \
+    ```
+
+    <div className="run-example">
+    <Accordion title="查看路由后的密钥" id="codex-routed-secrets">
+
+      ```text nocopy
+        Collected from host: OPENROUTER_API_KEY
+        Automatic Routing: OPENROUTER_API_KEY -> OPENAI_API_KEY
+        Codex reads: OPENAI_API_KEY
+      ```
+
+    </Accordion>
+    </div>
+  </Tab>
+  <Tab title="智能体匹配">
+    ```bash
+    export ANTHROPIC_API_KEY="sk-ant-api03-...9012"
+    harbor run \
+      -t hello-world/hello-world \
+      --agent claude-code \
+      --model vercel_ai_gateway/z-ai/glm-5.3
+    ```
+
+    <div className="run-example">
+    <Accordion title="查看路由后的密钥" id="claude-routed-secrets">
+
+      ```text nocopy
+        Collected from host: ANTHROPIC_API_KEY
+        Automatic Routing: ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY (nop)
+        Claude Code reads: ANTHROPIC_API_KEY
+      ```
+
+    </Accordion>
+    </div>
+  </Tab>
+  <Tab title="显式提供">
+    ```bash
+    harbor run \
+      -t hello-world/hello-world \
+      --agent mini-swe-agent \
+      --model openai/gpt-6-sol \
+      --agent-env OPENAI_API_KEY="sk-proj-...5678"
+    ```
+
+    <div className="run-example">
+    <Accordion title="查看路由后的密钥" id="cursor-routed-secrets">
+
+      ```text nocopy
+        Collected from --agent-env: OPENAI_API_KEY
+        Automatic Routing: OPENAI_API_KEY -> OPENAI_API_KEY (nop)
+        Mini SWE Agent reads: OPENAI_API_KEY
+      ```
+
+    </Accordion>
+    </div>
+  </Tab>
+</Tabs>
+</div>
+
+## 自动密钥路由规则 {#automatic-secret-routing-rules}
+
+<Tip>
+**建议先使用 `--dry-run`。**你无需了解所有路由规则；该命令会显示解析后的凭据、端点、模型和 API 格式。
+</Tip>
+
+如果提供了多个与提供方或智能体匹配的密钥，Harbor 会根据以下优先级规则确定使用哪个密钥。
+
+1. `--api-key-name ENV_VAR_NAME`
+2. `--agent-env ENV_VAR_NAME` 与解析后的模型标识提供方匹配
+3. `--agent-env ENV_VAR_NAME` 与所选智能体声明的默认变量匹配
+4. 与解析后的模型标识提供方匹配的主机环境变量
+5. 与所选智能体声明的提供方匹配的主机环境变量
+
+运行 `harbor run --dry-run`，查看按优先级选中的变量。
+
+<div className="run-examples">
+<Tabs sync={false}>
+  <Tab title="OpenAI">
+    ```bash
+    export OPENAI_API_KEY="sk-proj-...5678"
+    harbor run --dry-run \
+      -t hello-world/hello-world \
+      -a codex \
+      -m openai/gpt-6-sol
+    ```
+
+    <div className="run-example run-example-run">
+    <Accordion title="▶ Run" id="routing-rules-openai-output">
+
+      <div className="auth-resolution-table">
+
+      | 设置 | 值 |
+      | --- | --- |
+      | 解析后的提供方 | `openai` |
+      | 解析后的模型 | `gpt-6-sol` |
+      | 端点 | `https://api.openai.com/v1` |
+      | API 格式 | `openai_responses` |
+      | API 密钥优先级 | `1. --api-key-name — not set`<br />`2. --ae OPENAI_API_KEY — not set`<br />`3. --ae CODEX_API_KEY — not set`<br />`4. ambient OPENAI_API_KEY — selected (********5678)`<br />`5. ambient CODEX_API_KEY — not set` |
+      | 基础 URL 优先级 | `1. --base-url — not set`<br />`2. --ae OPENAI_BASE_URL — not set`<br />`3. --ae OPENAI_API_BASE — not set`<br />`4. ambient OPENAI_BASE_URL — not set`<br />`5. ambient OPENAI_API_BASE — not set`<br />`6. Default base URL — selected (https://api.openai.com/v1)` |
+
+      </div>
+
+    </Accordion>
+    </div>
+  </Tab>
+  <Tab title="提供方优先级">
+    ```bash
+    export OPENAI_API_KEY="sk-proj-...5678"
+    export OPENROUTER_API_KEY="sk-or-v1-...1234"
+    harbor run --dry-run \
+      -t hello-world/hello-world \
+      -a codex \
+      -m openrouter/openai/gpt-6-sol
+    ```
+
+    <div className="run-example run-example-run">
+    <Accordion title="▶ Run" id="routing-rules-provider-output">
+
+      <div className="auth-resolution-table">
+
+      | 设置 | 值 |
+      | --- | --- |
+      | 解析后的提供方 | `openrouter` |
+      | 解析后的模型 | `openai/gpt-6-sol` |
+      | 端点 | `https://openrouter.ai/api/v1` |
+      | API 格式 | `openai_responses` |
+      | API 密钥优先级 | `1. --api-key-name — not set`<br />`2. --ae OPENROUTER_API_KEY — not set`<br />`3. --ae OPENAI_API_KEY — not set`<br />`4. --ae CODEX_API_KEY — not set`<br />`5. ambient OPENROUTER_API_KEY — selected (********1234)`<br />`6. ambient OPENAI_API_KEY — not selected (********5678)`<br />`7. ambient CODEX_API_KEY — not set` |
+      | 基础 URL 优先级 | `1. --base-url — not set`<br />`2. --ae OPENROUTER_BASE_URL — not set`<br />`3. --ae OPENAI_BASE_URL — not set`<br />`4. ambient OPENROUTER_BASE_URL — not set`<br />`5. ambient OPENAI_BASE_URL — not set`<br />`6. Default base URL — selected (https://openrouter.ai/api/v1)` |
+
+      </div>
+
+    </Accordion>
+    </div>
+  </Tab>
+  <Tab title="显式覆盖">
+    ```bash
+    export OPENAI_API_KEY="sk-proj-...5678"
+    export OPENROUTER_API_KEY="sk-or-v1-...1234"
+    harbor run --dry-run \
+      -t hello-world/hello-world \
+      -a codex \
+      -m openrouter/openai/gpt-6-sol \
+      --ae NEW_ENV_VAR="sk-or-v1-...7890" \
+      --api-key-name NEW_ENV_VAR \
+      --base-url https://directly-supplied-url.fake
+    ```
+
+    <div className="run-example run-example-run">
+    <Accordion title="▶ Run" id="routing-rules-explicit-output">
+
+      <div className="auth-resolution-table">
+
+      | 设置 | 值 |
+      | --- | --- |
+      | 解析后的提供方 | `openrouter` |
+      | 解析后的模型 | `openai/gpt-6-sol` |
+      | 端点 | `https://directly-supplied-url.fake` |
+      | API 格式 | `openai_responses` |
+      | API 密钥优先级 | `1. --api-key-name NEW_ENV_VAR — selected (********7890)`<br />`2. --ae OPENROUTER_API_KEY — not set`<br />`3. --ae OPENAI_API_KEY — not set`<br />`4. --ae CODEX_API_KEY — not set`<br />`5. ambient OPENROUTER_API_KEY — not selected (********1234)`<br />`6. ambient OPENAI_API_KEY — not selected (********5678)`<br />`7. ambient CODEX_API_KEY — not set` |
+      | 基础 URL 优先级 | `1. --base-url — selected (https://directly-supplied-url.fake)`<br />`2. --ae OPENROUTER_BASE_URL — not set`<br />`3. --ae OPENAI_BASE_URL — not set`<br />`4. ambient OPENROUTER_BASE_URL — not set`<br />`5. ambient OPENAI_BASE_URL — not set`<br />`6. Default base URL — not selected (https://openrouter.ai/api/v1)` |
+
+      </div>
+
+    </Accordion>
+    </div>
+  </Tab>
+</Tabs>
+</div>
+
+需要使用其他端点、凭据变量或 API 格式时，请在 `harbor run`、`harbor job start` 或 `harbor trial start` 中使用**模型身份验证覆盖**选项：
+
+| CLI（命令行界面） 选项 | AgentConfig 字段 | 用途 |
+| --- | --- | --- |
+| `--base-url` | `model_base_url` | 设置推理端点。 |
+| `--api-key-name` | `model_api_key_name` | 从此环境变量读取密钥。 |
+| `--api-format` | `model_api_format` | 选择受支持的 API 格式。 |
+
+<Note>
+`--base-url`、`--api-key-name` 和 `--api-format` 均可单独使用，**无需设置 `--skip-model-parsing-and-provider-mapping`**。启用 `--skip-model-parsing-and-provider-mapping` 时，通常会同时使用这些覆盖项，显式指定端点、凭据变量和 API 格式。
+</Note>
+
+基础 URL 环境变量的注入遵循与凭据相同的选择和路由规则。
+
+## 高级用法 {#advanced}
+
+### 解析和凭据映射的内部流程 {#parsing-and-credential-mapping-under-the-hood}
+
+LiteLLM 会将模型名称拆分为提供方和模型 ID。随后 Harbor 会在 `PROVIDERS` 中查找该提供方，并将其凭据和端点候选项与智能体声明的回退项及任何显式覆盖项合并。如果解析未能识别提供方，Harbor 就会使用智能体的 `default_provider`。
+
+应用优先级规则后，Harbor 会将选中的凭据值写入智能体声明的目标变量。在此 Codex 示例中，`OPENROUTER_API_KEY` 的值会注入为 `OPENAI_API_KEY`。
+
+<div className="dark:hidden">
+
+![模型解析与凭据路由：LiteLLM 识别 OpenRouter，Harbor 依次应用覆盖项、提供方凭据和 Codex 回退项，并将选中的值注入 OPENAI_API_KEY。](/images/agent-auth-resolution/parsing-and-routing-light.svg)
+
+</div>
+<div className="hidden dark:block">
+
+![模型解析与凭据路由：LiteLLM 识别 OpenRouter，Harbor 依次应用覆盖项、提供方凭据和 Codex 回退项，并将选中的值注入 OPENAI_API_KEY。](/images/agent-auth-resolution/parsing-and-routing-dark.svg)
+
+</div>
+
+### 跳过模型解析和凭据映射 {#skipping-model-parsing-and-credential-mapping}
+
+在某些情况下（例如托管本地模型），可能需要跳过模型名称解析及后续的凭据映射。可在 `harbor run` 命令中使用 `--skip-model-parsing-and-provider-mapping`（或 `--sm`）实现此操作。
+
+使用 `--skip-model-parsing-and-provider-mapping` 时，Harbor 会原样保留模型名称，并使用 `harbor-skip-parsing` 作为提供方标记。上图中红色步骤（LiteLLM 解析和提供方映射）将被跳过。智能体声明的回退项、显式覆盖项、优先级规则和凭据注入仍然生效。
+
+在此示例中，`--api-key-name CUSTOM_KEY` 会选中 `CUSTOM_KEY` 的值，并将其作为 `OPENAI_API_KEY` 传给 Codex。跳过解析不会禁用最后的注入步骤。
+
+<div className="dark:hidden">
+
+![跳过模型解析：保留本地模型路径、跳过提供方查询，并将显式指定的 CUSTOM_KEY 覆盖值作为 OPENAI_API_KEY 注入 Codex。](/images/agent-auth-resolution/skip-parsing-light.svg)
+
+</div>
+<div className="hidden dark:block">
+
+![跳过模型解析：保留本地模型路径、跳过提供方查询，并将显式指定的 CUSTOM_KEY 覆盖值作为 OPENAI_API_KEY 注入 Codex。](/images/agent-auth-resolution/skip-parsing-dark.svg)
+
+</div>
+
+### 查看智能体身份验证设置 {#inspecting-agent-auth-settings}
+
+浏览 [Harbor 智能体身份验证查询](https://harbortoolkit.com/agent)，查看各智能体的凭据映射、默认端点和受支持的 API 格式覆盖项。
+
+使用 `harbor agent auth <agent>` 查看智能体的默认提供方、凭据和端点路由，以及受支持的 API 格式。
+
+<div className="run-examples">
+<Tabs sync={false}>
+  <Tab title="Grok Build">
+    ```bash
+    harbor agent auth grok-build
+    ```
+
+    <div className="run-example run-example-run">
+    <Accordion title="▶ Run" id="agent-auth-grok-build-output">
+
+      <div className="auth-resolution-table">
+
+      **Harbor 提供方默认值（使用 `--skip-model-parsing-and-provider-mapping` 时跳过）**
+
+      | 设置 | 值 |
+      | --- | --- |
+      | 默认提供方 | `xai` |
+      | 默认基础 URL | `https://api.x.ai/v1` |
+      | 提供方 API 密钥名称 | `XAI_API_KEY` |
+      | 提供方基础 URL 名称 | `XAI_BASE_URL` |
+      | 提供方额外环境变量 | 无 |
+
+      **智能体连接设置**
+
+      | 设置 | 约定 |
+      | --- | --- |
+      | 默认 API 密钥名称 | `XAI_API_KEY` |
+      | API 密钥注入目标 | `default: XAI_API_KEY`<br />`openai_chat_completions: OPENAI_API_KEY`<br />`openai_responses: OPENAI_API_KEY`<br />`anthropic_messages: ANTHROPIC_API_KEY` |
+      | 默认基础 URL 名称 | `XAI_BASE_URL` |
+      | 基础 URL 注入目标 | 未知 |
+      | 受支持的 API 格式 | `openai_chat_completions`, `openai_responses`, `anthropic_messages` |
+      | 默认 API 格式 | `default: openai_chat_completions`<br />`openai: openai_responses`<br />`anthropic: anthropic_messages`<br />`openrouter: openai_chat_completions` |
+      | 接受自定义基础 URL | 是（`--base-url`） |
+      | 接受凭据选择器 | 是（`--api-key-name`） |
+
+      </div>
+
+    </Accordion>
+    </div>
+  </Tab>
+  <Tab title="Codex">
+    ```bash
+    harbor agent auth codex
+    ```
+
+    <div className="run-example run-example-run">
+    <Accordion title="▶ Run" id="agent-auth-codex-output">
+
+      <div className="auth-resolution-table">
+
+      **Harbor 提供方默认值（使用 `--skip-model-parsing-and-provider-mapping` 时跳过）**
+
+      | 设置 | 值 |
+      | --- | --- |
+      | 默认提供方 | `openai` |
+      | 默认基础 URL | `https://api.openai.com/v1` |
+      | 提供方 API 密钥名称 | `OPENAI_API_KEY` |
+      | 提供方基础 URL 名称 | `OPENAI_BASE_URL`, `OPENAI_API_BASE` |
+      | 提供方额外环境变量 | 无 |
+
+      **智能体连接设置**
+
+      | 设置 | 约定 |
+      | --- | --- |
+      | 默认 API 密钥名称 | `OPENAI_API_KEY`, `CODEX_API_KEY` |
+      | API 密钥注入目标 | `default: OPENAI_API_KEY` |
+      | 默认基础 URL 名称 | `OPENAI_BASE_URL` |
+      | 基础 URL 注入目标 | `default: OPENAI_BASE_URL` |
+      | 受支持的 API 格式 | `openai_responses` |
+      | 默认 API 格式 | `default: openai_responses` |
+      | 接受自定义基础 URL | 是（`--base-url`） |
+      | 接受凭据选择器 | 是（`--api-key-name`） |
+
+      </div>
+
+    </Accordion>
+    </div>
+  </Tab>
+  <Tab title="Mini SWE Agent">
+    ```bash
+    harbor agent auth mini-swe-agent
+    ```
+
+    <div className="run-example run-example-run">
+    <Accordion title="▶ Run" id="agent-auth-mini-swe-agent-output">
+
+      <div className="auth-resolution-table">
+
+      **Harbor 提供方默认值（使用 `--skip-model-parsing-and-provider-mapping` 时跳过）**
+
+      | 设置 | 值 |
+      | --- | --- |
+      | 默认提供方 | 无 |
+      | 默认基础 URL | 无 |
+      | 提供方 API 密钥名称 | 无 |
+      | 提供方基础 URL 名称 | 无 |
+      | 提供方额外环境变量 | 无 |
+
+      **智能体连接设置**
+
+      | 设置 | 约定 |
+      | --- | --- |
+      | 默认 API 密钥名称 | `MSWEA_API_KEY` |
+      | API 密钥注入目标 | 根据模型标识和 API 格式确定 |
+      | 默认基础 URL 名称 | `OPENAI_BASE_URL`, `OPENAI_API_BASE` |
+      | 基础 URL 注入目标 | `default: OPENAI_BASE_URL`<br />`anthropic_messages: ANTHROPIC_API_BASE` |
+      | 受支持的 API 格式 | `openai_chat_completions`, `openai_responses`, `anthropic_messages` |
+      | 默认 API 格式 | `gemini: google_generate_content`<br />`amazon-bedrock: bedrock_converse` |
+      | 接受自定义基础 URL | 是（`--base-url`） |
+      | 接受凭据选择器 | 是（`--api-key-name`） |
+
+      </div>
+
+    </Accordion>
+    </div>
+  </Tab>
+</Tabs>
+</div>
+
+### 选择 API 格式 {#selecting-api-formats}
+
+API 格式定义智能体与模型提供方通信的方式。Claude Code（Anthropic 编程智能体） 仅支持 Anthropic Messages（Anthropic 消息接口），而 Grok Build（编程智能体） 等智能体支持多种格式。Harbor 会为 LiteLLM 识别出的提供方选择该智能体的默认格式。
+
+使用 `--api-format` 可覆盖默认格式。可用值包括 `openai_responses`、`openai_chat_completions`、`anthropic_messages`、`google_generate_content` 和 `bedrock_converse`。每个智能体只接受其支持的格式。
+
+### 跨 API 格式路由 {#routing-across-api-formats}
+
+提供方决定 Harbor 从何处查找凭据以及使用哪个端点。智能体选定的 API 格式决定请求的发送方式以及凭据写入哪个变量。即使是同一智能体，这些设置也可能不同。
+
+有些智能体对所有提供方都读取同一个凭据变量；另一些智能体则会根据 API 格式切换变量。Grok Build 就属于后一种：
+
+| 模型提供方 | API 格式 | 凭据路由 |
+| --- | --- | --- |
+| `anthropic` | Anthropic Messages（Anthropic（模型服务提供商） 消息格式） | `ANTHROPIC_API_KEY` → `ANTHROPIC_API_KEY` |
+| `openai` | OpenAI Responses（OpenAI（模型服务提供商） 响应格式） | `OPENAI_API_KEY` → `OPENAI_API_KEY` |
+| `openrouter` | OpenAI Chat Completions（OpenAI 聊天补全格式） | `OPENROUTER_API_KEY` → `OPENAI_API_KEY` |
+
+对于 OpenRouter，Grok Build 会读取 `OPENAI_API_KEY` 变量；请求仍会使用 OpenRouter 凭据发送到 OpenRouter。
+
+使用自定义端点时，可通过 `--api-format` 选择协议、通过 `--api-key-name` 选择凭据来源，并通过 `--base-url` 选择端点。目标变量仍由智能体决定。
+
+### 本地模型 {#local-models}
+
+本地模型可能需要显式配置路由，以保留模型名称并选择端点和凭据。此 Codex 示例假设 vLLM（模型推理服务框架） 服务器支持 Responses 和工具调用，并将模型部署在 `/dev/shm/my-model`：
+
+```bash
+export VLLM_API_KEY="dummy"
+harbor run \
+  -t hello-world/hello-world \
+  -a codex \
+  -m /dev/shm/my-model \
+  --skip-model-parsing-and-provider-mapping \
+  --api-key-name VLLM_API_KEY \
+  --base-url http://host.docker.internal:8000/v1
+```
+
+vLLM 默认不要求身份验证；如果启用了 `--api-key`，请将 `VLLM_API_KEY` 设置为对应值。请将 URL 替换为从智能体环境可访问的服务器地址。在 macOS（苹果桌面操作系统） 上，Docker（容器平台） 中的 `host.docker.internal` 可访问主机；智能体容器内的 `localhost` 则指向其自身容器。

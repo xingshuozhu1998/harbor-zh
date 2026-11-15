@@ -1,0 +1,7 @@
+# Draft content
+drafts/
+*.draft.mdx
+
+# 本地预览依赖不属于页面内容
+node_modules/
+package-lock.json

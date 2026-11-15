@@ -1,0 +1,182 @@
+---
+title: "自定义智能体"
+description: "将自己的智能体接入 Harbor（智能体评测框架） 并运行。"
+---
+
+自定义智能体是在 Harbor 内置注册表之外开发的集成。它们可以是本地开发中的项目，也可以是不打算贡献到上游的私有集成。自定义智能体分为**已安装**和**外部**两种。
+
+| 类型 | 运行方式 | 示例 |
+| --- | --- | --- |
+| 已安装智能体 | Harbor 在任务环境中安装并运行智能体 CLI（命令行界面）。 | [Claude Code（Anthropic 编程智能体）](https://github.com/harbor-framework/harbor/blob/main/src/harbor/agents/installed/claude_code.py) |
+| 外部智能体 | 智能体循环在 Harbor 中运行，并通过 `BaseEnvironment` 控制任务环境。 | [Terminus-2](https://github.com/harbor-framework/harbor/blob/main/src/harbor/agents/terminus_2/terminus_2.py) |
+
+<Tip>
+  在本地添加新智能体或将其集成到 Harbor 时，**优先使用** `BaseInstalledAgent`。大多数智能体集成都采用这种设计。**只有当**智能体循环必须留在任务环境之外时，才使用 `BaseAgent`。
+</Tip>
+
+添加模型解析、凭据或端点路由之前，请先检查 Harbor 的[内置智能体身份验证解析](#agent-auth-resolution)是否已满足需求。在你的适配代码中复用其映射和解析后的值。
+
+根据智能体的运行位置选择基类。
+
+<Tabs>
+  <Tab title="Installed agent">
+    如果 Harbor 应在任务环境中安装并运行智能体 CLI，请继承 `BaseInstalledAgent`。
+
+    ```python my_agent.py
+    import shlex
+
+    from harbor.agents.installed.base import (
+        BaseInstalledAgent,
+        with_prompt_template,
+    )
+    from harbor.environments.base import BaseEnvironment
+    from harbor.models.agent.context import AgentContext
+
+
+    class MyAgent(BaseInstalledAgent):
+        @staticmethod
+        def name() -> str:
+            return "my-agent"
+
+        async def install(self, environment: BaseEnvironment) -> None:
+            await self.exec_as_agent(
+                environment,
+                command="pip install my-agent",
+            )
+
+        @with_prompt_template
+        async def run(
+            self,
+            instruction: str,
+            environment: BaseEnvironment,
+            context: AgentContext,
+        ) -> None:
+            await self.exec_as_agent(
+                environment,
+                command=f"my-agent {shlex.quote(instruction)}",
+            )
+    ```
+
+    系统级软件包使用 `exec_as_root`，用户级安装和执行使用 `exec_as_agent`。可以重写 `populate_context_post_run`，在日志同步后解析用量或轨迹数据。
+
+    用户传入 `--ak skip_install=true` 时会跳过 `install()`，因此其中只应放入可预先构建到镜像中的操作。每次 Trial（单次运行）都必须执行的步骤，例如上传运行脚本、写入凭据或注册 MCP（模型上下文协议） 服务器和技能，应放在 `configure()` 中。该方法在 `install()` 之后运行，即使安装步骤被跳过也会运行。请在 `configure()` 中根据已安装的文件重建所需的内存状态，避免依赖 `install()` 在同一进程中运行。
+  </Tab>
+
+  <Tab title="External agent">
+    如果智能体循环在任务环境之外运行，并通过 `BaseEnvironment` 控制环境，请继承 `BaseAgent`。
+
+    ```python my_agent.py
+    from harbor.agents.base import BaseAgent
+    from harbor.environments.base import BaseEnvironment
+    from harbor.models.agent.context import AgentContext
+
+
+    class MyAgent(BaseAgent):
+        @staticmethod
+        def name() -> str:
+            return "my-agent"
+
+        def version(self) -> str | None:
+            return "1.0.0"
+
+        async def setup(self, environment: BaseEnvironment) -> None:
+            pass
+
+        async def run(
+            self,
+            instruction: str,
+            environment: BaseEnvironment,
+            context: AgentContext,
+        ) -> None:
+            # Call your model and act through environment.exec(...).
+            pass
+    ```
+  </Tab>
+</Tabs>
+
+## 运行自定义智能体 {#run-a-custom-agent}
+
+自定义智能体不会按名称注册，因此请将 `module.path:ClassName` 传给 `--agent`（`-a`）。Harbor 进程必须能够导入该模块。
+
+```bash
+harbor run \
+  -t hello-world/hello-world \
+  -a examples.agents.marker_agent:MarkerAgent
+```
+
+如果智能体需要模型，请使用 `--model`（`-m`）；其他构造函数选项使用 `--agent-kwarg`（`--ak`）；环境变量使用 `--agent-env`（`--ae`）。
+
+<Card
+  title="自定义智能体示例"
+  icon="github"
+  href="https://github.com/harbor-framework/harbor/blob/main/examples/agents/marker_agent.py"
+>
+  在 Harbor 仓库中查看完整的 `BaseAgent` 实现。
+</Card>
+
+## 智能体身份验证解析 {#agent-auth-resolution}
+
+对于推理连接，请接受用户传给其他智能体的相同模型标识（[模型查询](/agents/agent-auth-resolution#model-name-parsing)）。
+
+声明 `MODEL_CONNECTION` 后，使用 `self.model_connection.provider` 和 `self.model_connection.model_id` 获取解析后的 provider 和模型 ID。这些值遵循 `--skip-model-parsing-and-provider-mapping` 设置；未解析的模型名称会保持原样。对于 LiteLLM（统一模型调用库） 客户端，请直接传入 `self.model_name`，不要根据这些字段重新拼接模型标识。客户端专用的格式处理应放在适配器中；对于 Tinker（模型训练服务） 等其他后端，请保留其原生标识符和身份验证方式。
+
+声明运行时支持的连接：
+
+使用 `agent_provider_access` 声明智能体的凭据和端点输入名称。在每个环境来源中，这些名称会在所选 provider 的名称之后作为回退项使用。
+
+```python
+from harbor.agents.agent_auth_resolution import ModelConnectionSpec, ProviderAccess
+from harbor.agents.capabilities import AgentCapabilities
+from harbor.models.model_api_format import ModelApiFormat
+
+class MyAgent(BaseInstalledAgent):
+    capabilities = AgentCapabilities(base_url=True)
+    MODEL_CONNECTION = ModelConnectionSpec(
+        default_provider="openai",
+        agent_provider_access=ProviderAccess(
+            api_key_candidate_names=["MY_AGENT_API_KEY", "OPENAI_API_KEY"],
+            base_url_candidate_names=["MY_AGENT_BASE_URL"],
+        ),
+        supported_api_formats=[ModelApiFormat.OPENAI_CHAT_COMPLETIONS],
+        default_api_format_by_provider={
+            "default": ModelApiFormat.OPENAI_CHAT_COMPLETIONS,
+        },
+    )
+```
+
+在 `default_api_format_by_provider` 中，provider 匹配项优先于 `"default"`。
+在声明和已解析的连接中使用 `ModelApiFormat` 成员。原生默认值可能包含适配器不支持作为显式覆盖的格式。只有适配器会应用 `--base-url` 时，才声明 `AgentCapabilities(base_url=True)`。
+
+对于 SDK（软件开发工具包），请将解析后的值直接传给其构造函数：
+
+```python
+connection = self.model_connection
+client = Client(api_key=connection.api_key, base_url=connection.execution_base_url)
+model_id = connection.model_id
+```
+
+对于从环境变量读取配置的客户端，还应在 `MODEL_CONNECTION` 中声明客户端读取的变量名称：
+
+```python
+api_key_destination_names={"default": "MY_CLIENT_API_KEY"},
+base_url_destination_names={"default": "MY_CLIENT_BASE_URL"},
+```
+
+将 `self.model_connection.env` 传给客户端的执行环境。
+解析器会选择凭据并将其映射到声明的变量。
+在任一字典中，也可以用其他键指定 API（应用程序接口） 格式或 provider。API 格式匹配项
+优先于 provider 匹配项，之后才是 `"default"`。适配器钩子
+可以覆盖原生配置或身份验证的目标变量。
+没有匹配项时，Harbor 会使用 provider
+或所选传输方式的环境变量名称传递选中值。Provider 的 `extra_env_names`
+会独立传递，并优先使用作用域内的智能体值，再使用环境值。
+
+除非提供了相应的通用覆盖项，否则保留原生设置。只声明适配器已实现的 API 格式，并清楚拒绝不支持的格式。
+
+使用以下命令检查声明：
+
+```bash
+harbor agent auth module.path:MyAgent --json
+```
+
+常用选项和凭据优先级请参见[身份验证解析设置](/agents/agent-auth-resolution)。

@@ -1,0 +1,32 @@
+---
+title: "Base URL 管理"
+description: "用于网络和配置的 Base URL 管理。"
+---
+
+<a id="provider-routing" />
+
+根据用户、智能体集成和智能体本身的不同，Harbor（智能体评测框架）有三种处理 provider 路由的方式。
+
+1. 由智能体处理 provider 路由（例如 OpenCode（开源编程智能体）、Mini-SWE-Agent）
+2. 由 Harbor 集成根据请求的 provider 设置 `base_url` 来处理路由（例如 Codex（OpenAI 编程智能体）、Claude Code（Anthropic 编程智能体））
+3. 由用户在 Job（任务运行集合）配置中设置 `--base-url` 或 `model_base_url` 来处理 provider 路由。
+
+建议尽可能将路由功能交给智能体处理；条件允许时再由 Harbor 集成兜底，同时始终允许用户显式设置路由。
+
+# 自动将 Base URL 加入允许列表 {#auto-allowlisting-base-urls}
+
+满足以下条件时，Harbor 会尝试自动将智能体的推理端点加入允许列表：
+
+- 没有为智能体显式设置允许的主机（`--allow-agent-host`）
+- 任务的智能体阶段网络模式为 `no-network` 或 `allowlist`
+- 智能体未选择退出自动加入允许列表
+
+Harbor 按以下优先级选择要加入允许列表的 `base_url`：
+
+1. 用户显式设置的 `base_url`（[情形 (3)](#provider-routing)）
+2. Harbor 集成设置的 `base_url`（[情形 (2)](#provider-routing)）
+3. Harbor 对智能体 `base_url` 的最佳推断（[情形 (1)](#provider-routing)）
+
+<Warning>
+    少数情况下，(3) 可能导致 Harbor 将错误的 `base_url` 加入允许列表，尤其是推理端点曾发生变化的 provider（例如 together.xyz -> together.ai）。此时用户需要显式设置 `--base-url`。
+</Warning>

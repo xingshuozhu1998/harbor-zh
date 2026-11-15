@@ -1,0 +1,141 @@
+---
+title: "ATIF（智能体轨迹交换格式）"
+description: "以标准 JSON（结构化数据格式） 格式记录和交换智能体（Agent（智能体））的轨迹。"
+---
+
+**Agent Trajectory Interchange Format（ATIF，智能体轨迹交换格式）**以 JSON 记录智能体完整的交互历史，包括消息、推理、工具调用、观察结果和指标。
+
+## 用途 {#why}
+
+不同智能体会生成[各自的原生日志](/jobs/loading-trajectories#native-trajectories)。如果没有通用格式，每个查看器、数据集和训练流水线都需要针对不同智能体编写解析器。ATIF 为不同智能体提供统一且稳定的表示方式，便于检查、比较、验证、加载和重复使用轨迹。
+
+See the [ATIF RFC](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
+，查看完整规范。
+
+## Harbor（智能体评测框架） 中的 `trajectory.json` {#trajectory-json-in-harbor}
+
+<Info>
+  在 Harbor（智能体评测框架）中，ATIF 轨迹通常命名为 **`trajectory.json`**。
+</Info>
+
+设置了 `capabilities.atif = true` 的智能体会将其写入智能体日志目录。在下载的 Trial（单次运行）结果中，路径为 `agent/trajectory.json`。
+
+Harbor 使用此文件来：
+
+- **呈现轨迹：**[结果查看器](/results/view-job-results#start-the-viewer)会读取 `agent/trajectory.json`，并在 **Trajectory** 标签页中显示各个步骤。
+- **加载轨迹：**受支持的智能体可以使用 [ATIF 轨迹](/jobs/loading-trajectories#atif-trajectories)为新会话提供初始上下文。
+
+<Note>
+  生成 ATIF 和加载 ATIF 是两项独立能力。智能体可以写入 `trajectory.json`，但不支持[加载轨迹](/jobs/loading-trajectories)。
+</Note>
+
+只有在自定义智能体会写入有效的 `self.logs_dir / "trajectory.json"` 时，才应声明 `AgentCapabilities(atif=True)`。
+
+## 结构 {#structure}
+
+Harbor 当前使用的格式为 `ATIF-v1.8`。轨迹包含：
+
+| 字段 | 用途 |
+| --- | --- |
+| `agent` | 智能体名称、版本、模型和可选的工具定义。 |
+| `steps` | 按顺序排列的系统、用户和智能体交互。 |
+| `session_id` | 可选标识符，同一次运行中的轨迹共用该标识符。 |
+| `trajectory_id` | 可选的文档标识符；嵌入子智能体轨迹时必须提供。 |
+| `final_metrics` | 可选的汇总指标，包括令牌数、成本和步骤数。 |
+| `subagent_trajectories` | 可选的嵌入式 ATIF 轨迹。 |
+| `extra` | 自定义的根级元数据。 |
+
+步骤 ID 从 `1` 开始并依次递增。智能体步骤可以包含 `tool_calls`、与之对应的 `observation` 结果，以及每步的 `metrics`。
+
+```json
+{
+  "schema_version": "ATIF-v1.8",
+  "session_id": "session-123",
+  "agent": {
+    "name": "my-agent",
+    "version": "1.0.0",
+    "model_name": "openai/gpt-5.6-sol"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "user",
+      "message": "Create hello.txt."
+    },
+    {
+      "step_id": 2,
+      "source": "agent",
+      "message": "I'll create it.",
+      "tool_calls": [
+        {
+          "tool_call_id": "call-1",
+          "function_name": "write_file",
+          "arguments": {"path": "hello.txt", "content": "Hello"}
+        }
+      ],
+      "observation": {
+        "results": [
+          {"source_call_id": "call-1", "content": "File created"}
+        ]
+      }
+    }
+  ]
+}
+```
+
+<Accordion title="使用 Harbor 模型构建">
+  Harbor 在 `harbor.models.trajectories` 中提供 Pydantic（Python 数据验证库） 模型：
+
+  ```python
+  import json
+  from pathlib import Path
+
+  from harbor.models.trajectories import Agent, Step, Trajectory
+
+  trajectory = Trajectory(
+      agent=Agent(name="my-agent", version="1.0.0"),
+      steps=[
+          Step(step_id=1, source="user", message="Create hello.txt."),
+          Step(step_id=2, source="agent", message="Done."),
+      ],
+  )
+
+  Path("trajectory.json").write_text(
+      json.dumps(trajectory.to_json_dict(), indent=2) + "\n"
+  )
+  ```
+</Accordion>
+
+## 验证轨迹 {#validate-a-trajectory}
+
+```bash
+uv run python -m harbor.utils.trajectory_validator path/to/trajectory.json
+```
+
+验证过程会检查架构、连续的步骤 ID、工具调用引用、时间戳和所引用的本地图片。使用 `--no-validate-images` 可跳过图片文件检查。
+
+<Accordion title="在 Python 中验证">
+  ```python
+  from harbor.utils.trajectory_validator import TrajectoryValidator
+
+  validator = TrajectoryValidator()
+
+  if not validator.validate("trajectory.json"):
+      for error in validator.get_errors():
+          print(error)
+  ```
+</Accordion>
+
+## 版本与扩展 {#versions-and-extensions}
+
+Harbor 接受 `ATIF-v1.0` 到 `ATIF-v1.8`。1.8 版新增了引用音频文件且可包含时长的音频内容部分。1.7 版新增嵌入式子智能体轨迹、文档级轨迹 ID、`llm_call_count` 和其他扩展字段。更早版本请参阅
+[RFC changelog](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md#version-history)
+。
+
+<Tip>
+  请使用架构中的 `extra` 字段保存自定义元数据。Harbor 的 Pydantic 模型会拒绝未声明的字段。
+</Tip>
+
+## 资源 {#resources}
+
+[ATIF RFC（规范请求）](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)、[Harbor 轨迹模型](https://github.com/harbor-framework/harbor/tree/main/src/harbor/models/trajectories)、[有效轨迹示例](https://github.com/harbor-framework/harbor/tree/main/tests/golden)、[轨迹验证器](https://github.com/harbor-framework/harbor/blob/main/src/harbor/utils/trajectory_validator.py)

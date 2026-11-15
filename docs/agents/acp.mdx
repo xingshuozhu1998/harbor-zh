@@ -1,0 +1,125 @@
+---
+title: "ACP（智能体客户端协议）"
+description: "运行 Agent（智能体） Client Protocol（智能体客户端协议）注册表中的智能体。"
+---
+
+Harbor（智能体评测框架）的通用 `acp` 集成会在任务环境中从 [ACP Registry](https://agentclientprotocol.com/get-started/registry) 安装并运行智能体。ACP 为客户端和智能体提供通用协议。
+
+<Note>
+  `--agent acp:...` 用于选择 ACP 注册表中的智能体。它与
+  [`--bridge acp`](/jobs/simulate-a-user) 不同；后者会将模拟用户连接到目标智能体。
+</Note>
+
+## 运行注册表中的智能体 {#run-a-registry-agent}
+
+Harbor 支持 [ACP Registry Github](https://github.com/agentclientprotocol/registry) 中的所有 acp 智能体，也支持 [ACP registry.json](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json) 中的所有智能体。下方列出的四个智能体仅为示例。使用 `acp:<agent_id>` 选择最新条目，或使用 `acp:<agent_id>@<version>` 固定版本。
+
+<Warning>
+  与 Harbor 已安装的智能体不同，ACP 智能体不会自动接收提供方凭据。请使用 `--agent-env`（`--ae`）传入每个必需的变量。
+
+  各智能体的身份验证规则也有所不同。除凭据外，有些智能体还需要
+  `--agent-kwarg authenticate_method_id=...`。请查看该智能体在
+  [ACP Registry](https://github.com/agentclientprotocol/registry) 中的文档。
+</Warning>
+
+<Tabs>
+  <Tab title="CLI">
+    <CodeGroup>
+      ```bash Codex
+      harbor run \
+        -t hello-world/hello-world \
+        --agent acp:codex-acp \
+        --model openai/gpt-5.6-sol \
+        --agent-env OPENAI_API_KEY="$OPENAI_API_KEY" \
+        --agent-kwarg authenticate_method_id=api-key
+      ```
+
+      ```bash Claude Code
+      harbor run \
+        -t hello-world/hello-world \
+        --agent acp:claude-acp \
+        --model anthropic/claude-sonnet-5 \
+        --agent-env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
+      ```
+
+      ```bash Cursor
+      harbor run \
+        -t hello-world/hello-world \
+        --agent acp:cursor \
+        --agent-env CURSOR_API_KEY="$CURSOR_API_KEY" \
+        --agent-kwarg authenticate_method_id=cursor_login
+      ```
+
+      ```bash OpenCode
+      harbor run \
+        -t hello-world/hello-world \
+        --agent acp:opencode \
+        --model openai/gpt-5.6-sol \
+        --agent-env OPENAI_API_KEY="$OPENAI_API_KEY"
+      ```
+    </CodeGroup>
+  </Tab>
+
+  <Tab title="Config">
+    ```json
+    {
+      "agents": [
+        {
+          "name": "acp:codex-acp",
+          "model_name": "openai/gpt-5.6-sol",
+          "env": {"OPENAI_API_KEY": "${OPENAI_API_KEY}"},
+          "kwargs": {"authenticate_method_id": "api-key"}
+        }
+      ]
+    }
+    ```
+  </Tab>
+
+  <Tab title="Python">
+    ```python
+    from harbor.models.trial.config import AgentConfig
+
+    agent = AgentConfig(
+        name="acp:codex-acp",
+        model_name="openai/gpt-5.6-sol",
+        env={"OPENAI_API_KEY": "${OPENAI_API_KEY}"},
+        kwargs={"authenticate_method_id": "api-key"},
+    )
+    ```
+  </Tab>
+</Tabs>
+
+Authentication references: [Codex（OpenAI 编程智能体） ACP](https://github.com/agentclientprotocol/codex-acp#authentication),
+[Claude](https://platform.claude.com/docs/en/manage-claude/authentication),
+[Cursor（AI 编程工具） ACP](https://cursor.com/docs/cli/acp#authentication), and
+[OpenCode（开源编程智能体）](https://opencode.ai/docs/providers).
+
+## 常用选项 {#common-options}
+
+使用 `--agent-kwarg`（`--ak`）或 `agents[].kwargs` 传入以下选项：
+
+| 选项 | 默认值 | 用途 |
+| --- | --- | --- |
+| `auth_policy` | `auto` | 选择 `auto`、`explicit` 或 `disabled` 身份验证策略。 |
+| `authenticate_method_id` | — | 选择 ACP 身份验证方法。 |
+| `permission_mode` | `allow` | 允许或拒绝 ACP 工具权限请求。 |
+| `distribution_preference` | `binary,npx,uvx` | 设置安装顺序。 |
+| `registry_ref` | `main` | 为未固定版本的智能体设置注册表 Git（版本控制工具） ref。 |
+| `registry_cache_dir` | `.cache/acp-registry` | 设置本地注册表缓存目录。 |
+
+所有受支持的选项请参阅 [ACP 智能体构造器](https://github.com/harbor-framework/harbor/blob/main/src/harbor/agents/installed/acp.py)。
+
+<Accordion title="使用本地注册表条目">
+  使用本地 `agent.json` 文件运行通用 `acp` 智能体：
+
+  ```yaml
+  agents:
+    - name: acp
+      kwargs:
+        registry_entry_path: /path/to/agent.json
+  ```
+</Accordion>
+
+## 输出 {#output}
+
+ACP 运行会将 `acp.txt`、`acp-events.jsonl`、`acp-summary.json` 和名为 `trajectory.json` 的 [ATIF（智能体轨迹交换格式） 轨迹](/agents/atif)写入智能体日志目录。
