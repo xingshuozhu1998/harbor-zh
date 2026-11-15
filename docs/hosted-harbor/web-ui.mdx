@@ -1,0 +1,220 @@
+---
+title: 网页界面
+description: 在 Harbor Hub（任务与结果共享平台） 添加密钥并启动远程任务批次
+---
+
+## 添加密钥 {#adding-secrets}
+除非运行不需要 API（应用程序接口） 模型推理的 `oracle` 或 `nop` 智能体，否则第一步是添加 API 密钥。在 Harbor Hub 中，任务、Trial（单次运行）、软件包和密钥都属于组织。运行远程任务批次时，会从任务所属的组织中选择密钥。
+
+要通过网页界面将密钥添加到个人组织，请先访问 [Hub](https://hub.harborframework.com)。
+
+点击右上角的个人资料：
+
+<div className="dark:hidden">
+
+![Harbor Hub 首页，列出已发布的数据集](/images/hosted-harbor/hub-home.png)
+
+</div>
+<div className="hidden dark:block">
+
+![Harbor Hub 首页，列出已发布的数据集](/images/hosted-harbor/hub-home-dark.png)
+
+</div>
+
+然后点击设置标签页：
+
+<div className="dark:hidden">
+
+![个人资料页面](/images/hosted-harbor/hub-settings.png)
+
+</div>
+<div className="hidden dark:block">
+
+![个人资料页面](/images/hosted-harbor/hub-settings-dark.png)
+
+</div>
+
+向下滚动到密钥区域，然后点击“Add secret”：
+
+<div className="dark:hidden">
+
+![密钥标签页](/images/hosted-harbor/add-secrets.png)
+
+</div>
+<div className="hidden dark:block">
+
+![密钥标签页](/images/hosted-harbor/add-secrets-dark.png)
+
+</div>
+
+添加注册表密钥或环境变量密钥：
+
+<div className="max-w-sm dark:hidden">
+
+![密钥对话框](/images/hosted-harbor/secret-modal.png)
+
+</div>
+<div className="max-w-sm hidden dark:block">
+
+![密钥对话框](/images/hosted-harbor/secret-modal-dark.png)
+
+</div>
+
+环境密钥可以在任务批次运行期间注入智能体运行时。注册表密钥不会被注入，只用于解析任务引用的私有镜像仓库。
+
+## 添加密钥 To Organizations {#adding-secrets-to-organizations}
+
+要向自己拥有的组织添加密钥，请点击页面顶部的“Organization”按钮：
+<div className="dark:hidden">
+
+![组织按钮](/images/hosted-harbor/org-button.png)
+
+</div>
+<div className="hidden dark:block">
+
+![组织按钮](/images/hosted-harbor/org-button-dark.png)
+
+</div>
+
+选择自己拥有的组织，或创建新组织。
+
+然后打开该组织的设置标签页，查看已保存的密钥。请注意，只有组织所有者可以修改密钥。
+
+<div className="dark:hidden">
+
+![为组织添加密钥](/images/hosted-harbor/org-settings.png)
+
+</div>
+<div className="hidden dark:block">
+
+![为组织添加密钥](/images/hosted-harbor/org-settings-dark.png)
+
+</div>
+
+最后添加密钥：
+
+<div className="dark:hidden">
+
+![为组织添加密钥](/images/hosted-harbor/org-add-secret.png)
+
+</div>
+<div className="hidden dark:block">
+
+![为组织添加密钥](/images/hosted-harbor/org-add-secret-dark.png)
+
+</div>
+
+## 启动任务 {#launching-a-job}
+添加密钥后，前往[任务启动器](https://hub.harborframework.com/jobs/launch)。
+
+首先选择此任务所属的组织。
+
+<div className="dark:hidden">
+
+![选择组织](/images/hosted-harbor/select-organization.png)
+
+</div>
+<div className="hidden dark:block">
+
+![选择组织](/images/hosted-harbor/select-organization-dark.png)
+
+</div>
+
+然后选择要评测的数据集或任务。你可以选择已上传到 Hub 或 GitHub（代码托管平台） 的任务和数据集。若要使用私有 GitHub 任务，必须先在个人资料设置中连接私有 GitHub 仓库。
+<div className="dark:hidden">
+
+![选择来源](/images/hosted-harbor/select-source.png)
+
+</div>
+<div className="hidden dark:block">
+
+![选择来源](/images/hosted-harbor/select-source-dark.png)
+
+</div>
+
+### 添加智能体 {#adding-agents}
+接下来选择要评测的智能体和模型组合。Harbor Hub 默认使用**直接凭据模式**，并勾选 **Disable credential proxying**。所选凭据会注入任务沙箱，供智能体代码读取。直接模式不应用网关策略，也不进行网关计量。
+
+若要启用**网关模式**，请取消勾选 **Disable credential proxying**。之后，受支持的推理 provider 密钥会替换为带作用域的代理凭据。选中的非 provider 密钥仍以真实值传入；有关支持的 provider 和凭据处理方式，请参见[智能体密钥](/hosted-harbor/submitting-jobs#agent-secrets)。
+
+<div className="dark:hidden">
+
+![选择智能体](/images/hosted-harbor/select-agent.png)
+
+</div>
+<div className="hidden dark:block">
+
+![选择智能体](/images/hosted-harbor/select-agent-dark.png)
+
+</div>
+
+自定义智能体必须存储在 GitHub 上并兼容 ACP（智能体客户端协议）。请通过 `HOSTED_INFERENCE_TOKEN` 读取所选模型的凭据。网关模式还会设置 `HOSTED_INFERENCE_URL`；直接模式不会设置此变量，因此应使用 provider 的标准端点。完整约定请参见[自定义智能体](/hosted-harbor/custom-agents#inference-credentials)。
+
+选择智能体后，可以添加其他环境变量。此字段**不可用于填写密钥**。这里填写的环境变量会以明文保存在任务配置中。打开 **Agent（智能体） Configuration** 可配置所选智能体的选项。声明了选项结构的智能体会显示对应类型的控件和支持的 kwargs 说明。也可以使用 `harbor agent schema claude-code --hub` 检查已部署智能体的选项，并将 `claude-code` 替换为智能体名称。
+
+### 选择要注入的密钥 {#choosing-secrets-to-inject}
+配置好智能体后，选择每个智能体要接收的凭据。`Secrets` 区域会列出所属组织中上传的所有密钥名称。每个智能体可以选择任意数量的密钥，包括多个推理 provider 密钥。
+
+<div className="dark:hidden">
+
+![选择密钥](/images/hosted-harbor/select-secret-settings.png)
+
+</div>
+<div className="hidden dark:block">
+
+![选择密钥](/images/hosted-harbor/select-secret-settings-dark.png)
+
+</div>
+
+每个选中的密钥都会被注入。其中一个密钥还会被重命名：其 provider 与智能体所选模型匹配的密钥会使用智能体预期的名称传入，因此无需另存一份并改用其他名称。其他所选密钥则沿用各自名称注入。
+
+例如，使用 `claude-code` 运行 `openrouter/zai/glm-5.2` 时，应选择组织的 `OPENROUTER_API_KEY`。它与模型的 `openrouter/` provider 匹配，而 `claude-code` 从 `ANTHROPIC_API_KEY` 读取凭据，因此密钥会以该名称注入。其他选中的密钥（例如 `OPENAI_API_KEY` 或任务所需令牌）会保持原名传入。
+
+如果所选密钥中没有与模型 provider 匹配的项，系统不会重命名任何密钥，智能体会在没有凭据的情况下启动，导致 Trial 因凭据错误而失败。对于该 OpenRouter（模型服务聚合平台） 模型只选择 `OPENAI_API_KEY` 就会出现这种情况：该密钥会以原名称注入，但模型无法使用它。
+
+### 任务总体设置 {#overall-job-settings}
+任务总体设置包括名称、重试次数、尝试次数、并发数和超时倍数。
+
+<div className="dark:hidden">
+
+![选择任务设置](/images/hosted-harbor/select-job-settings.png)
+
+</div>
+<div className="hidden dark:block">
+
+![选择任务设置](/images/hosted-harbor/select-job-settings-dark.png)
+
+</div>
+
+**名称**
+
+建议为任务命名，因为默认时间戳之后不容易识别。
+
+**重试**
+
+重试设置每个 Trial 在遇到符合条件的异常后最多额外执行的次数。默认值为 `0`，即禁用重试。是否符合条件取决于异常包含/排除设置和剩余重试额度；分数偏低本身不会触发重试。参见[重试设置](/hosted-harbor/submitting-jobs#retry-settings)。
+
+**尝试次数**
+
+每个任务的尝试次数决定每种任务与智能体组合执行多少个独立 Trial。例如，4 次尝试和 3 次重试允许每个任务和智能体最多执行 `4 × (1 + 3) = 16` 次：4 个 Trial 各执行一次，并最多重试 3 次。重试会替代失败的执行，不会增加评分样本。Trial 槽位仍为 4 个；耗尽重试次数的 Trial 可能以错误结束，而非得到分数。
+
+**并发 Trial**
+
+可以根据 API 密钥的速率限制设置并发数。如果速率限制导致失败，Harbor Hub 会监控并发并降低负载；建议设置合适的并发数，避免触发速率限制错误。
+
+**超时倍数**
+
+超时倍数用于调整智能体完成任务的时间限制。时间限制在任务中声明；如果想调整而不修改任务，可以将超时倍数设为不同于 `1.0` 的值。例如，`0.5` 表示一半时间，`2.0` 表示两倍时间。
+
+### 高级任务设置 {#advanced-job-settings}
+
+<div className="dark:hidden">
+
+![选择高级设置](/images/hosted-harbor/advanced-options.png)
+
+</div>
+<div className="hidden dark:block">
+
+![选择高级设置](/images/hosted-harbor/advanced-options-dark.png)
+
+</div>

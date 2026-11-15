@@ -1,0 +1,242 @@
+---
+title: 提交任务
+description: 使用 POST /job-submit 启动远程任务批次并查看状态
+---
+
+`POST /job-submit` 用于启动远程任务批次。
+
+以下示例使用 `$BASE` 和 `$KEY`。请从 [Harbor Hub（任务与结果共享平台） API（应用程序接口） 密钥](/hosted-harbor/api-key)获取密钥。
+
+```bash
+export BASE=https://ofhuhcpkvzjlejydnvyd.supabase.co/functions/v1
+export KEY=sk-harbor-...
+```
+
+请求标头：
+
+```http
+Authorization: Bearer sk-harbor-...
+Content-Type: application/json
+Idempotency-Key: <unique-retry-key>
+```
+
+**必须**提供 `Idempotency-Key` 标头。缺少此标头的请求会被拒绝，密钥最长为 200 个字符。重复使用同一个密钥会返回该密钥先前创建的任务，而不会再次启动任务。因此，每次启动都应生成新密钥，仅在重试同一次启动时复用。如果复用 `Idempotency-Key`，即使配置发生变化，服务器仍会返回之前的启动 URL。
+
+请求正文顶层可包含以下字段：
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `config` | yes | 任务配置 |
+| `organization` | no | 任务所属组织的名称。默认为个人组织 |
+| `job_secrets` | no | 一次性环境变量名到密钥值的映射。仅用于此任务，并且只注入到 `secrets` 子字段包含该名称的智能体中 |
+| `registry_credentials` | no | 注册表主机到已保存凭据名称或 ID 的映射 `"us-east1-docker.pkg.dev": "registry-cred-stored-name"` |
+| `dry_run` | no | 验证并解析所有内容，但不创建任务。默认为 `false` |
+
+`job_secrets` 和 `registry_credentials` 与 `config` 同级，而不是其中的字段。这样可以避免明文密钥进入已保存和可重放的任务配置。将任一字段放在 `config` 中都会被拒绝。提交时，这些凭据会经过加密，并且只在运行时解密。我们的平台不会保存明文密钥。
+
+以下示例使用注册表数据集和内置智能体启动任务：
+
+```json
+{
+  "config": {
+    "job_name": "I-love-harbor",
+    "agents": [
+      {
+        "name": "terminus-2",
+        "model_name": "openai/gpt-5.6-luna",
+        "secrets": [{"name": "OPENAI_API_KEY", "tag": "default", "as": "OPENAI_API_KEY"}]
+      }
+    ],
+    "datasets": [
+      {
+        "name": "harbor/hello-world",
+        "ref": "latest",
+        "n_tasks": 5
+      }
+    ],
+    "n_attempts": 1,
+    "n_concurrent_trials": 20
+  },
+  "job_secrets": {
+    "OPENAI_API_KEY": "sk-..."
+  },
+  "dry_run": false
+}
+```
+
+成功启动后会返回任务及其查看器 URL：
+
+```json
+{
+  "job_id": "00000000-0000-0000-0000-000000000001",
+  "job_name": "I-love-harbor",
+  "viewer_url": "https://hub.harborframework.com/jobs/00000000-0000-0000-0000-000000000001",
+  "status_url": "https://hub.harborframework.com/jobs/00000000-0000-0000-0000-000000000001",
+  "n_trials": 1,
+  "owner_org": { "id": "...", "name": "...", "max_running_trials": 1000 },
+  "agent_sources": []
+}
+```
+
+`owner_org` 表示最终拥有任务的组织，`agent_sources` 会列出已解析的自定义智能体来源及其固定提交。试运行不会创建任务，因此 `job_id` 返回 `null`，但仍会解析并验证所有来源。`owner_org.max_running_trials`（如果存在）表示组织实际生效的并发 Trial（单次运行） 上限。该上限适用于组织的所有任务，不受单个任务所请求的 `n_concurrent_trials` 影响。
+
+提交保存在 `launch.json` 中的请求：
+
+```bash
+BASE="https://ofhuhcpkvzjlejydnvyd.supabase.co/functions/v1"
+KEY="sk-harbor-..."
+
+curl -sS -X POST "$BASE/job-submit" \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d @launch.json
+```
+
+## 任务配置 {#job-config}
+
+`config` 与 CLI（命令行界面） 发送的 `JobConfig` 保持一致，因此无法识别的键会原样传递。API 会直接验证以下字段：
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `agents` | yes | 至少一个智能体 |
+| `tasks` | no | 单个任务 |
+| `datasets` | no | 注册表或 Git（版本控制工具） 仓库数据集 |
+| `job_name` | no | 默认为 UTC 时间戳，例如 `2026-08-13__14-30-00`（之后查找时会很不方便，建议认真考虑设置任务名称）|
+| `n_attempts` | no | 介于 1 到 10。默认为 1 |
+| `n_concurrent_trials` | no | 介于 1 到 1000。默认为 4 |
+| `credential_mode` | no | `direct`（默认）将选定的解密凭据注入任务沙箱。`gateway` 为受支持的推理 provider 启用凭据代理 |
+| `retry` | no | `max_retries`（默认 `0`），以及 `include_exceptions` 和 `exclude_exceptions` 列表。参见[重试设置](#retry-settings) |
+
+`tasks` 和 `datasets` 至少需要提供一项，且解析后必须至少包含一个任务。Trial 总数为 `n_attempts × tasks × agents`，必须介于 1 和 50,000 之间。
+
+对于每个智能体，`name` 表示 Harbor（智能体评测框架） 智能体类型，`model_name` 表示其使用的模型，`secrets` 列出该智能体接收的凭据。通过软件包管理器安装的智能体版本会在提交任务时固定，因此即使任务在上游发布新版本期间仍处于排队状态，其中的每个 Trial 也会安装同一版本。
+
+## 重试设置 {#retry-settings}
+
+`config.retry.max_retries` 指每个 Trial 在遇到符合条件的异常后最多额外执行多少次。默认值为 `0`，因此除非显式启用，否则不会重试。非空的 `include_exceptions` 列表会将重试限制为指定异常；空列表或 `null` 表示允许重试所有未排除的异常。`exclude_exceptions` 优先于包含列表。省略该字段会保留默认排除项。
+
+只有遇到符合条件的异常且仍有重试额度时才会重试。分数偏低本身不会触发重试，重试也不会增加评分样本。例如，`n_attempts: 4` 且 `retry.max_retries: 3` 时，每个任务和智能体最多执行 `4 × (1 + 3) = 16` 次，但仍只有 4 个 Trial 槽位。耗尽重试次数的 Trial 可能以错误结束，而非得到分数。
+
+## 智能体密钥 {#agent-secrets}
+
+每个智能体通过 `secrets` 选择自己的凭据。每项选择都需要以下三个字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `name` | 来源环境变量名称，例如 `OPENAI_API_KEY` |
+| `tag` | 准确的已存变体；默认凭据使用 `default` |
+| `as` | 传递给智能体的环境变量名称 |
+
+```json
+{
+  "name": "codex",
+  "model_name": "openai/gpt-5",
+  "model_api_key_name": "MODEL_KEY",
+  "secrets": [
+    {"name": "OPENAI_API_KEY", "tag": "production", "as": "MODEL_KEY"},
+    {"name": "OPENAI_API_KEY", "tag": "judge", "as": "JUDGE_KEY"}
+  ]
+}
+```
+
+此配置会选择 `OPENAI_API_KEY` 的两个变体，并以不同名称传递。`model_api_key_name` 会明确告诉 Harbor 模型使用哪个已传递的凭据；仅设置别名并不会指定该值。每个智能体内传递名称必须唯一，最多可选择 64 个密钥。对于 `oracle` 或 `nop` 等不需要凭据的智能体，请使用 `"secrets": []`。
+
+对于 `tag: "default"`，源 `name` 对应的[任务一次性密钥](#job-secrets)优先于组织保存的默认凭据。之后才会进行重命名。其他 tag 只会选择完全匹配的已保存变体。
+
+CLI 简写格式为 `--stored-secret NAME[@TAG][=AS]`。省略 tag 时会选择 `default`；省略别名时会沿用来源名称。例如，`--stored-secret OPENAI_API_KEY` 会展开为 `{"name": "OPENAI_API_KEY", "tag": "default", "as": "OPENAI_API_KEY"}`。CLI 中与 `model_api_key_name` 对应的参数是 `--api-key-name MODEL_KEY`。配置文件必须提供全部三个字段；字符串形式的条目会被拒绝。
+
+`credential_mode: "direct"` 会将真实密钥值传入任务沙箱。`gateway` 模式下，每个选定密钥都会以代理凭据的形式传入。
+
+请将密钥值放入 [`job_secrets`](#job-secrets) 或组织保存的凭据中。智能体的 `env` 仅用于非敏感环境变量。
+
+## 任务 {#tasks}
+
+使用 `tasks` 指定单个任务。每项可以是注册表任务或 Git 任务，不能同时采用两种形式。
+
+注册表任务使用 `org/name` 格式的 `name`，并可选提供 `ref`，其值可以是类似 `"latest"` 的版本引用或语义化版本字符串。
+
+Git 任务需要 `git_url` 和 `path`，其中 `path` 是相对于仓库根目录的任务目录，且**必填**。使用 `git_ref`（分支、标签或 SHA）或 `git_commit_id`（已解析的 40 位 SHA）固定版本，但不能同时提供两者。Git 任务使用这些字段而不是 `ref`；远程任务批次不能使用本地文件系统路径。
+
+```json
+{
+  "config": {
+    "job_name": "individual-tasks",
+    "agents": [
+      {
+        "name": "terminus-2",
+        "model_name": "openai/gpt-5-mini",
+        "secrets": [{"name": "OPENAI_API_KEY", "tag": "default", "as": "OPENAI_API_KEY"}]
+      }
+    ],
+    "tasks": [
+      {
+        "git_url": "https://github.com/owner/private-tasks.git",
+        "git_ref": "main",
+        "path": "tasks/my-task"
+      },
+      {
+        "name": "terminal-bench/torch-tensor-parallelism",
+        "ref": "latest"
+      }
+    ]
+  },
+  "job_secrets": {
+    "OPENAI_API_KEY": "sk-..."
+  },
+  "dry_run": false
+}
+```
+
+将私有 GitHub（代码托管平台） 仓库用作任务或智能体来源之前，必须先通过个人资料设置流程连接或共享该仓库。 TODO: 此处添加图片。
+
+## 数据集 {#datasets}
+
+使用 `datasets` 指定注册表数据集或 Git 仓库数据集。
+
+注册表数据集需要 `org/name` 格式的 `name`，并可提供 `ref` 或 `version`，但不能同时提供。你可以通过 `n_tasks` 限制抽取的任务数量，并使用 `task_names` 和 `exclude_task_names` Glob 模式筛选任务。
+
+Git 仓库数据集使用 Harbor 的 `repo` 来源字符串，语法与 `harbor run --repo` 相同。可接受 `org/name`、`github.com/org/name`、完整 https 或 ssh URL，或 GitHub `/tree/<ref>/<subdir>` URL；末尾都可以带可选的 `@<branch|tag|sha>`。可选的 `path` 指相对于仓库根目录的任务目录，Harbor 默认使用 `tasks`。
+
+```json
+{
+  "datasets": [
+    {
+      "repo": "my-org/my-tasks@main",
+      "path": "tasks",
+      "n_tasks": 5
+    }
+  ]
+}
+```
+
+Git 仓库数据集在 repo 字符串中固定版本，因此不接受 `ref` 或 `version`。它们也不接受 `git_url`、`git_ref` 或 `git_commit_id`，这些字段用于 `tasks`。
+
+`latest` 或标签所解析出的版本会固定到已保存的配置中，因此任务记录的是实际运行的具体版本，而不是会变化的引用。
+
+## 任务密钥 {#job-secrets}
+
+`job_secrets` 是环境变量名到值的扁平映射：
+
+```json
+{ "OPENAI_API_KEY": "sk-..." }
+```
+
+名称必须为大写且以字母开头；值不能为空且最多 16,384 个字符；最多可发送 50 项。值会在存储前加密，之后不会返回。
+
+`config` 中看起来像密钥的环境变量会在保存前自动移入此加密通道，因此明文不会进入已存储的配置。如果同一名称同时出现在两个位置，则以显式设置的 `job_secrets` 条目为准。
+
+在此提供值后，任务即可使用该值。请在每个智能体的 [`secrets`](#agent-secrets) 中使用对应的来源 `name` 和 `tag: "default"` 来选择它。若要使用已保存的凭据，请不要在 `job_secrets` 中提供其值。
+
+## 任务状态 {#job-status}
+
+`GET /job-status` 返回一个或多个任务的 Trial 计数。
+
+```bash
+curl -sS "$BASE/job-status?job_id=<uuid>" \
+  -H "Authorization: Bearer $KEY"
+```
+
+每个任务可以单独传入一个 `job_id`，也可以通过逗号分隔的 `job_ids` 列表一次查询多个任务。添加 `force_combined=true` 后，即使只查询一个任务，也会返回合并概览格式。也可以使用 `POST` 请求，并在正文中传入 `{"job_ids": [...], "force_combined": false}`。
+
+单个任务的响应会报告 `pending`、`running`、`completed`、`failed`、`canceled` 和 `total` 数量。

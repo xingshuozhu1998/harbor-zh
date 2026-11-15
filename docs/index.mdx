@@ -1,0 +1,55 @@
+---
+title: "Harbor（智能体评测框架） 文档"
+description: "使用 Harbor 评测和优化智能体与模型的文档。"
+---
+
+Harbor（智能体评测框架）可在任意沙箱中并行运行任意智能体、模型和任务。
+
+```mermaid
+%%{init: {"flowchart": {"curve": "basis", "nodeSpacing": 40, "rankSpacing": 70}, "look": "handDrawn"}}%%
+flowchart TB
+  Tasks["<div style='width:150px'>Tasks</div>"] --> Harbor["Harbor Rollout Engine"]
+  Models["<div style='width:150px'>Models</div>"] --> Harbor
+  Agents["<div style='width:150px'>Agents</div>"] --> Harbor
+  Sandboxes["<div style='width:150px'>Sandboxes</div>"] --> Harbor
+  Skills["<div style='width:150px'>Skills</div>"] --> Harbor
+
+  Harbor --> Analysis["<div style='width:150px'>Trajectory analysis</div>"]
+  Harbor --> Evaluation["<div style='width:150px'>Evaluation</div>"]
+  Harbor --> Optimization["<div style='width:150px'>Optimization</div>"]
+  Harbor --> TaskQA["<div style='width:150px'>Task QA</div>"]
+  Harbor --> Artifacts["<div style='width:150px'>Artifacts</div>"]
+```
+
+<div aria-hidden="true" style={{ height: "2rem" }} />
+
+<CardGroup cols={2}>
+  <Card
+    title="快速开始"
+    icon="zap"
+    href="/getting-started/quick-start"
+  >
+    使用 Harbor 运行首次评测。
+  </Card>
+  <Card
+    title="运行任务"
+    icon="terminal"
+    href="/jobs/run-a-job"
+  >
+    在任务和数据集上运行智能体。
+  </Card>
+  <Card
+    title="任务概览"
+    icon="folder"
+    href="/tasks/overview"
+  >
+    了解 Harbor 任务格式。
+  </Card>
+  <Card
+    title="创建任务"
+    icon="plus"
+    href="/tutorials/create-a-task"
+  >
+    创建并测试你的第一个任务。
+  </Card>
+</CardGroup>

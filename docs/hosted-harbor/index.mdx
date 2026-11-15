@@ -1,0 +1,28 @@
+---
+title: Harbor（智能体评测框架） 托管服务
+description: 在 Hub 上启动任务
+---
+
+现在可以通过 [Harbor Hub（任务与结果共享平台）](https://hub.harborframework.com) 运行远程 Harbor rollout（任务批次）。本指南介绍如何通过 CLI（命令行界面）、网页界面和 API（应用程序接口） 启动远程任务。
+
+首先访问[任务启动器](https://hub.harborframework.com/jobs/launch)，点击横幅中的链接并填写 Google 表单，以申请远程 rollout 使用权限。
+
+然后按照 [API 密钥创建指南](/hosted-harbor/api-key)创建 API 密钥。
+
+## 使用方式 {#interfaces}
+
+| 页面 | 用途 |
+| --- | --- |
+| [Web UI（用户界面）](/hosted-harbor/web-ui) | 在浏览器中添加密钥并启动任务 |
+| [CLI](/hosted-harbor/cli) | 使用 `harbor run --launch` 启动，然后浏览任务和 Trial（单次运行） |
+| [API overview](/hosted-harbor/api) | Base URL、身份验证和错误格式 |
+
+## API 参考 {#api-reference}
+
+| 页面 | 端点 |
+| --- | --- |
+| [Submitting jobs](/hosted-harbor/submitting-jobs) | `POST /job-submit`, `GET /job-status` |
+| [Custom agents](/hosted-harbor/custom-agents) | 从 GitHub（代码托管平台） 仓库运行 ACP（智能体客户端协议） 智能体 |
+| [Managing secrets](/hosted-harbor/secrets) | `/secrets`, `/secrets/preflight` |
+| [Registry credentials](/hosted-harbor/registry-credentials) | `/registry-credentials` |
+| [Leaderboards](/harbor-hub/leaderboards) | 通过 CLI 查看精选排行榜 |

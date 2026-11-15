@@ -1,0 +1,99 @@
+---
+title: 自定义智能体
+description: 从 GitHub（代码托管平台） 仓库运行 ACP（智能体客户端协议） 智能体
+---
+
+自定义智能体通过 ACP 运行，其来源仓库必须包含 `harbor-agent.json` 清单。
+使用私有仓库前，请先在个人资料设置中连接该仓库。
+
+下面的模板特意省略 `source.ref`，因此 Harbor（智能体评测框架） 会使用仓库默认分支，并将解析出的提交 SHA 记录在已保存的任务配置中：
+
+```json
+{
+  "config": {
+    "retry": {
+      "exclude_exceptions": [
+        "AgentTimeoutError",
+        "VerifierTimeoutError",
+        "RewardFileNotFoundError",
+        "RewardFileEmptyError",
+        "VerifierOutputParseError",
+        "ApiUsageLimitError",
+        "AgentSafetyRefusalError"
+      ],
+      "include_exceptions": []
+    },
+    "agents": [
+      {
+        "name": "acp",
+        "source": {
+          "path": ".",
+          "repo": "<github-owner>/<custom-agent-repo>",
+          "type": "github",
+          "manifest": "harbor-agent.json"
+        },
+        "model_name": "<model-provider>/<model-name>",
+        "secrets": [{"name": "<MODEL_API_KEY_ENV_VAR>", "tag": "default", "as": "<MODEL_API_KEY_ENV_VAR>"}]
+      }
+    ],
+    "datasets": [
+      {
+        "ref": "<dataset-ref>",
+        "name": "<dataset-org>/<dataset-name>",
+        "n_tasks": 3
+      }
+    ],
+    "job_name": "<job-name>"
+  },
+  "job_secrets": {
+    "<MODEL_API_KEY_ENV_VAR>": "<model-api-key>"
+  },
+  "dry_run": false
+}
+```
+
+提交前请替换所有 `<...>` 值。若要选择明确的版本，请在 `source` 中添加 `"ref": "<branch-tag-or-commit>"`。
+
+来源规则如下：
+
+- 存在 `source` 时，`name` 必须为 `acp`。
+- `source.type` 必须为 `github`，且 `source.repo` 必须采用 `owner/repo` 格式。
+- `source.ref` 为可选项，可接受分支、标签或提交 SHA。省略时，Harbor 会解析 GitHub `HEAD`（即仓库配置的默认分支，通常为 `main`），并将确切的提交 SHA 记录到已保存配置中，确保重试时结果可复现。
+- `source.path` 默认为 `.`，用于选择存放智能体项目的仓库目录。
+- `source.manifest` 默认为 `harbor-agent.json`，路径相对于 `source.path` 解析。
+- 自定义智能体使用自己的模型凭据。请在 `job_secrets` 中提供密钥，或将其保存为托管密钥；无论采用哪种方式，都要在智能体的 [`secrets`](/hosted-harbor/submitting-jobs#agent-secrets) 中命名。选择与 `model_name` 的 provider 匹配的凭据；该凭据会按[推理凭据](#inference-credentials)所述提供给 `HOSTED_INFERENCE_TOKEN`。
+
+来源目录必须包含已锁定依赖的 Python（编程语言） 项目和清单：
+
+```json
+{
+  "schema_version": 1,
+  "id": "<agent-id>",
+  "version": "<agent-version>",
+  "protocol": "acp",
+  "runtime": {
+    "kind": "python-uv",
+    "python": "3.12",
+    "project": ".",
+    "lockfile": "uv.lock",
+    "entrypoint": ["python", "-m", "<agent-module>"]
+  }
+}
+```
+
+`schema_version` 必须为 `1`，`protocol` 必须为 `acp`，`runtime.kind` 必须为 `python-uv`，且 `runtime.python` 必须为 `"3.12"`。entrypoint 必须是通过标准输入和输出使用 ACP 通信的可执行程序，且第一个元素必须是命令名称而非路径。请将清单、项目文件和 `uv.lock` 提交到仓库。
+
+若要在不启动任务的情况下检查仓库访问权限、版本引用和清单，请在相同请求中设置 `"dry_run": true`。验证成功后会返回已解析仓库、固定提交、清单标识和访问模式。
+
+## 推理凭据 {#inference-credentials}
+
+设置 `config.credential_mode`，选择自定义智能体接收所选模型凭据的方式：
+
+| 模式 | `HOSTED_INFERENCE_TOKEN` | `HOSTED_INFERENCE_URL` | 连接方式 |
+| --- | --- | --- | --- |
+| `direct` (default) | 所选模型 provider 的真实凭据 | 不设置 | 使用 provider 的标准端点 |
+| `gateway` | 带作用域的代理凭据 | 托管推理网关 URL | 使用此 URL 和带作用域的令牌 |
+
+使用 `HOSTED_INFERENCE_TOKEN` 进行推理身份验证。只有设置了 `HOSTED_INFERENCE_URL` 时，才覆盖 provider 客户端的 Base URL。直接模式下没有 URL 是正常情况；不要要求必须提供该 URL，也不要替换为硬编码的网关 URL。
+
+直接模式也会使用环境变量名称注入选中的密钥，因此智能体代码可以读取其真实值。网关模式会代理受支持的推理 provider 凭据；选中的非 provider 密钥仍以真实值传入。支持的 provider 和密钥选择方式请参见[智能体密钥](/hosted-harbor/submitting-jobs#agent-secrets)。
