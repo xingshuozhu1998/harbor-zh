@@ -1,0 +1,11 @@
+{
+  "name": "harbor-zh",
+  "private": true,
+  "scripts": {
+    "build": "python3 build.py"
+  },
+  "devDependencies": {
+    "mint": "4.2.893",
+    "node": "22.23.2"
+  }
+}
