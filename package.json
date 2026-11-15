@@ -2,6 +2,12 @@
   "name": "harbor-zh",
   "private": true,
   "scripts": {
+    "predev": "python3 build.py --assets-only",
+    "dev": "cd docs && PATH=\"$PWD/../node_modules/node/bin:$PATH\" mint dev --no-open --port 3334",
+    "prevalidate": "python3 build.py --assets-only",
+    "validate": "cd docs && PATH=\"$PWD/../node_modules/node/bin:$PATH\" mint validate",
+    "prelinks": "python3 build.py --assets-only",
+    "links": "cd docs && PATH=\"$PWD/../node_modules/node/bin:$PATH\" mint broken-links",
     "build": "python3 build.py"
   },
   "devDependencies": {

@@ -6,9 +6,24 @@
 
 ## 发布
 
-在本仓库 **Settings → Pages → Build and deployment → Source** 中选择 **GitHub Actions**。之后向 `main` 推送内容会自动构建并发布；也可以在 Actions 中手动运行“构建并发布 Harbor 中文文档”。首次启用时，如果之前的发布任务已经失败，请重新运行该任务。
+本仓库已启用 GitHub Actions（GitHub 的自动任务服务）发布。向 `main` 推送内容会自动构建并发布；也可以在 Actions 中手动运行“构建并发布 Harbor 中文文档”。[已验证的发布任务](https://github.com/xingshuozhu1998/harbor-zh/actions/runs/43681075760)成功完成构建和部署。
 
-网站发布后，个人主页 <https://xingshuozhu1998.github.io/> 会自动发现此 Pages 项目；主页另提供中文名称和介绍。
+个人主页 <https://xingshuozhu1998.github.io/> 已收录本站，提供中文名称和介绍。
+
+## 统一维护与本地预览
+
+`docs/` 是唯一的文档源目录，本地预览和网站发布都读取这里。编辑文档请直接修改 `docs/` 下对应文件。原本独立的 `docs-zh/` 已合并到本工程，不再维护第二份译文。
+
+在本仓库根目录运行：
+
+```bash
+npm ci
+npm run dev
+```
+
+打开 <http://localhost:3334/getting-started/quick-start> 阅读文档，或 <http://localhost:3334/cookbook/README> 阅读 Cookbook。按 `Ctrl+C` 停止预览。预览命令会自动使用项目安装的 Node.js 22.23.2，并在启动前从固定上游提交补齐图片、视频，首次运行需要联网。
+
+修改后可运行 `npm run validate` 校验页面，运行 `npm run links` 检查站内链接。这两个命令也会先补齐所需资源。
 
 ## 本地构建
 
@@ -34,5 +49,3 @@ npm run build
 ## 发布前核验
 
 在本地模拟 GitHub Pages 的 `/harbor-zh/` 子路径后，91 篇中文页面全部返回 HTTP 200 并显示中文正文，浏览器未捕获页面 JavaScript 异常。静态产物中的 16,746 个本地资源和页面链接均能找到对应文件。已实际测试标签页切换、折叠内容展开、代码复制、进入 Cookbook，以及 390 像素手机视口下无横向溢出。
-
-云端构建也已通过：[首次 Actions 运行](https://github.com/xingshuozhu1998/harbor-zh/actions/runs/43680590010)的 build 任务完成了依赖安装、静态导出与产物上传。该次 deploy 任务因当时尚未启用 Pages 而失败；启用 Pages 后由后续提交重新触发发布。

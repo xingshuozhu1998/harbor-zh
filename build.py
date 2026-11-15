@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """导出 Mintlify 原版页面，并适配 GitHub Pages 的 /harbor-zh/ 路径。"""
+import argparse
 import json
 import html
 import os
@@ -141,6 +142,10 @@ document.addEventListener('click',event=>{
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--assets-only', action='store_true', help='只准备预览所需的图片和视频')
+    args = parser.parse_args()
     fetch_assets()
-    prepare_export()
-    adapt_site()
+    if not args.assets_only:
+        prepare_export()
+        adapt_site()
