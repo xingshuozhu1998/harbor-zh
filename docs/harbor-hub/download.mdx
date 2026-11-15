@@ -1,0 +1,31 @@
+---
+title: "下载"
+description: "下载数据集、任务、作业、单次运行和轨迹。"
+---
+
+Harbor Hub（Harbor（智能体评测框架） 资源中心）是用于存储和共享数据集、任务、作业、单次运行及轨迹的服务。
+
+用户可以使用以下命令将数据上传到 Hub：
+
+```bash
+harbor run ... --upload
+harbor upload "<job>"
+harbor publish "<dataset>"
+```
+
+使用 `harbor download` 命令从 Hub 下载数据集和任务：
+
+```bash
+harbor download "<dataset>"
+harbor download "<task>"
+```
+
+用户也可以使用以下命令从 Hub 下载作业、单次运行和轨迹：
+
+```bash
+harbor job download "<job-id>"
+harbor trial download "<trial-id>"
+harbor trial download "<trial-id>" --trajectory
+```
+
+如需在下载内容中包含重试的单次运行，请添加 `--include-retries` 参数。

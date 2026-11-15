@@ -1,0 +1,68 @@
+---
+title: "快速入门"
+description: "运行你的第一个 Job（任务运行集合）。"
+---
+
+## 安装 Harbor（智能体评测框架） {#install-harbor}
+
+按照[安装说明](/getting-started/installation)安装 Harbor，其中包括安装软件包及其依赖项。
+
+## 运行 Job {#run-a-job}
+
+在 Harbor 中，Trial（单次运行）是 Agent（智能体）尝试解决一个 Task（任务）的一次执行。Job（任务运行集合）由多个 Trial 组成。
+
+运行以下命令启动你的第一个 Job：
+
+```bash
+OPENAI_API_KEY="<your-key>" \
+harbor run -t hello-world/hello-world \
+  -a codex -m openai/gpt-5.6-luna
+```
+
+默认情况下，Agent 会在 [Docker（容器平台）](https://www.docker.com/)（容器平台）沙箱中运行。
+
+使用 `--env/-e` 标志可将运行环境配置为 [Modal（云计算与沙箱平台）](https://modal.com/products/sandboxes)（云计算与沙箱平台）或 [Daytona（云沙箱平台）](https://www.daytona.io/)（云端开发沙箱）等云沙箱。
+
+添加 `--launch` 标志可在 Harbor Hub（Harbor 的任务与结果分享平台）上运行 Job。
+
+更多信息请参阅[运行 Job](/jobs/run-a-job)。
+
+## 查看结果 {#view-the-results}
+
+Harbor 自带本地 Web 查看器，可用于检查结果。
+
+```bash
+harbor view ./jobs
+```
+
+更多信息请参阅[查看 Job 结果](/results/view-job-results)。
+
+## 分享结果 {#share-results}
+
+你可以将结果上传到 Harbor Hub 并与他人分享。获得分享权限的人可以查看该 Job 的配置并复现结果。
+
+```bash
+harbor upload "./jobs/<job-id>"
+```
+
+请参阅 [Terminal-Bench（终端智能体评测基准）](https://www.tbench.ai/)（终端环境 Agent 基准测试集）网站，了解发布结果如何实现完整审计。
+
+## 其他资源 {#other-resources}
+
+<CardGroup cols={2}>
+  <Card
+    title="Task 概览"
+    icon="list-check"
+    href="/tasks/overview"
+  >
+      了解 Harbor Task 的定义。
+  </Card>
+
+  <Card
+    title="创建 Task"
+    icon="square-plus"
+    href="/tutorials/create-a-task"
+  >
+    创建你的第一个 Harbor Task。
+  </Card>
+</CardGroup>

@@ -1,0 +1,56 @@
+---
+title: "上传"
+description: "将任务结果上传到 Hub。"
+---
+
+Harbor Hub（Harbor（智能体评测框架） 的任务结果托管服务）可用于存储、查看和共享任务结果，包括其中的 Trial（单次运行）及轨迹。
+
+## 上传 {#uploading}
+
+登录后，上传本地任务目录：
+
+```bash
+harbor auth login
+harbor upload "<job-path>"
+```
+
+目录必须包含 `config.json` 和 `result.json`。
+
+如需在运行过程中逐个上传已完成的 Trial，请添加 `--upload`：
+
+```bash
+harbor run ... --upload
+```
+
+如果上传中断或部分 Trial 上传失败，请重新运行 `harbor upload "<job-path>"`。已上传的 Trial 会被跳过。
+
+## 可见性 {#visibility}
+
+新上传内容默认设为私有。使用 `--public` 将任务设为公开，或使用 `--private` 将其设为私有：
+
+```bash
+harbor upload "<job-path>" --public
+harbor upload "<job-path>" --private
+harbor run ... --upload --public
+```
+
+对于已上传的任务，这些标志会更新其可见性。省略标志则保持当前可见性。
+
+## 所有权与共享 {#ownership-and-sharing}
+
+任务默认归个人组织所有。上传新任务时，使用 `--org` 选择所属组织：
+
+```bash
+harbor upload "<job-path>" --org "<org>"
+```
+
+重新上传不能更改任务所有者。要与其他组织共享任务，请使用 `--share`：
+
+```bash
+harbor upload "<job-path>" --share "<org>"
+harbor run ... --upload --share "<org>"
+```
+
+重复使用 `--share` 可与多个组织共享。与自己不属于的组织共享时需要确认；在脚本中使用 `--yes` 确认。
+
+上传后如何管理访问权限，请参见[共享](/harbor-hub/sharing)；如何获取结果，请参见[下载](/harbor-hub/download)。

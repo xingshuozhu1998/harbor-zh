@@ -1,0 +1,30 @@
+---
+title: "发布"
+description: "将数据集和任务发布到 Hub。"
+---
+
+Harbor Hub（Harbor（智能体评测框架） 资源中心）支持发布和共享数据集及任务。你可以将其理解为面向强化学习环境的 Hugging Face 或 PyPI（Python 软件包索引）。
+
+## 发布内容 {#publishing}
+
+运行以下命令，将任务或数据集发布到 Harbor Hub：
+
+```bash
+harbor publish "<path/to/task>" # or path/to/dataset
+```
+
+你也可以使用 `--tag` 参数为上传内容添加标签。
+
+发布数据集时，系统也会自动发布同一文件夹中被引用的任务。路径可以是 `dataset.toml` 文件，也可以是包含该文件的目录。
+
+## 可见性 {#visibility}
+
+已发布的任务和数据集默认设为私有。使用 `--public` 参数即可将其设为公开。
+
+```bash
+harbor publish "<path/to/task>" --public # or dataset
+```
+
+将数据集设为公开后，其中任何版本包含的所有任务也会设为公开。
+
+如何共享已发布的内容，请参阅[共享](/harbor-hub/sharing)。

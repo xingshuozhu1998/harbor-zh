@@ -1,0 +1,351 @@
+---
+title: "排行榜"
+description: "在 Harbor Hub（评测结果托管平台）中创建、排序和分享评测结果。"
+---
+
+Leaderboard（排行榜）是数据集结果的排名表。你可以定义列和排序规则，使用元数据和分数添加行，还可以为每行关联对应的 Trial（单次运行）。
+
+<Note>
+Harbor Hub 有意不根据关联的 Trial 自动计算行分数，以便灵活创建排行榜。
+</Note>
+
+公开排行榜无需登录即可查看。私有排行榜仅对所属组织成员可见。创建排行榜需要拥有数据集所属组织的所有者权限。
+
+下文命令中的 `<leaderboard>` 可以是 UUID，也可以是 `org/dataset/leaderboard` slug。
+
+## 基本流程 {#general-approach}
+
+1. 选择一个已发布的数据集，以及排行榜要覆盖的[版本](#dataset-versions)。
+2. 使用 `init` [生成配置文件](#create)，然后定义元数据、指标、列和排序规则。
+3. 准备[结果行](#add-rows)，并自行计算分数。如需关联各结果的运行记录，请包含 Trial ID。
+4. 使用定义文件和行数据文件创建排行榜。审核结果期间请将排行榜设为私有。
+5. [检查排行榜](#browse)，核对排名和 Trial 链接；准备就绪后再[公开排行榜](#edit-a-leaderboard)。
+
+## 浏览 {#browse}
+
+```bash
+harbor hub leaderboard list
+harbor hub leaderboard list "<org>/<dataset>"
+harbor hub leaderboard show "<leaderboard>"
+```
+
+`list` 命令可以按数据集 slug 或 ID 筛选。
+
+## 创建 {#create}
+
+生成配置文件并编辑，然后创建排行榜：
+
+```bash
+harbor auth login
+harbor hub leaderboard init \
+  --package "<org>/<dataset>" \
+  --name main \
+  --title "Main leaderboard" \
+  --output leaderboard.yaml
+# Edit leaderboard.yaml.
+harbor hub leaderboard create --config leaderboard.yaml
+```
+
+新建排行榜默认为私有。在文件中设置 `visibility: public`，或在 `create` 命令中传入 `--visibility public`。
+
+### 配置 Schema {#configuration-schema}
+
+传给 `create --config` 的定义文件接受以下字段。请使用 `package` 或 `package_id` 其中之一。行数据放在另一个单独文件中，并通过 `--rows` 传入。
+
+<ParamField body="package" type="string">
+数据集 slug，例如 `acme/my-dataset`。除非提供 `package_id`，否则必填。
+</ParamField>
+
+<ParamField body="package_id" type="string (UUID)">
+作为 `package` 替代项的数据集 Package UUID。
+</ParamField>
+
+<ParamField body="name" type="string" required>
+排行榜 slug，最多 100 个字符。以小写字母或数字开头，也可以包含 `.`、`_` 和 `-`。
+</ParamField>
+
+<ParamField body="title" type="string" required>
+显示标题，长度为 1 到 200 个字符。
+</ParamField>
+
+<ParamField body="description" type="string | null">
+可选描述，最多 5,000 个字符。
+</ParamField>
+
+<ParamField body="visibility" type="string" default="private">
+`public` 或 `private`。
+</ParamField>
+
+<ParamField body="metadata_schema" type="object" default="{}">
+每行元数据的 Schema，例如 Agent（智能体） 名称和配置。
+</ParamField>
+
+<ParamField body="metrics_schema" type="object" default="{}">
+每行指标的 Schema，例如分数和成本。
+</ParamField>
+
+<ParamField body="columns" type="object[]" default="[]">
+显示列，按从左到右的顺序排列。
+<Expandable title="列字段">
+  <ParamField body="id" type="string" required>
+   唯一的列键。以字母、数字或下划线开头，也可以包含 `.` 和 `-`。
+  </ParamField>
+  <ParamField body="header" type="string" required>
+   非空的显示列标题。
+  </ParamField>
+  <ParamField body="accessor" type="string" required>
+   以 `metadata.` 或 `metrics.` 开头的值路径，例如 `metrics.reward`。
+  </ParamField>
+  <ParamField body="type" type="string" required>
+   `text`、`number`、`boolean`、`date`、`markdown` 或 `link`。链接接受 URL 字符串，或包含 `url` 和 `label` 的对象。
+  </ParamField>
+  <ParamField body="display_accessor" type="string">
+   用于显示的备用值路径。原始 `accessor` 仍用于排序。
+  </ParamField>
+  <ParamField body="display_type" type="string">
+   备用显示值的格式化类型；接受与 `type` 相同的值。
+  </ParamField>
+  <ParamField body="align" type="string">
+   `left`、`center` 或 `right`。
+  </ParamField>
+  <ParamField body="description" type="string">
+   对该列的说明。
+  </ParamField>
+  <ParamField body="enable_sorting" type="boolean">
+   用户是否可以在 Hub 中按此列排序。
+  </ParamField>
+</Expandable>
+</ParamField>
+
+<ParamField body="rank_by" type="object[]" default="[]">
+按顺序评估的排序规则，用于打破平局。
+<Expandable title="排序规则字段">
+  <ParamField body="accessor" type="string" required>
+   以 `metadata.` 或 `metrics.` 开头的值路径。
+  </ParamField>
+  <ParamField body="direction" type="string" required>
+   `asc` 表示从低到高排序，`desc` 表示从高到低排序。
+  </ParamField>
+  <ParamField body="nulls" type="string">
+   将缺失值排在 `first` 或 `last`。
+  </ParamField>
+</Expandable>
+</ParamField>
+
+<ParamField body="dataset_version_refs" type="string[]">
+关联的数据集版本 ref，例如 `latest` 或版本标签。创建时会解析为固定 UUID。
+</ParamField>
+
+<ParamField body="dataset_version_ids" type="string (UUID)[]">
+关联的数据集版本 UUID。可与 refs 组合使用。两个字段都省略时会关联所有现有版本；都设为 `[]` 时不关联任何版本。
+</ParamField>
+
+### 列和排序 {#columns-and-ranking}
+
+生成的文件包含一个 Agent 名称和奖励分数示例：
+
+```yaml
+metadata_schema:
+  type: object
+  properties:
+    agent:
+      type: string
+metrics_schema:
+  type: object
+  properties:
+    reward:
+      type: number
+columns:
+  - id: agent
+    header: Agent
+    accessor: metadata.agent
+    type: text
+  - id: reward
+    header: Reward
+    accessor: metrics.reward
+    type: number
+rank_by:
+  - accessor: metrics.reward
+    direction: desc
+    nulls: last
+```
+
+此配置会显示 Agent 列和奖励列，并将奖励最高的结果排在最前面。
+
+### 数据集版本 {#dataset-versions}
+
+默认情况下，新排行榜会关联创建时已存在的所有数据集版本。之后新增的版本不会自动关联。
+
+若要显式选择版本，请在配置中添加 `dataset_version_refs` 或 `dataset_version_ids`：
+
+```yaml
+dataset_version_refs:
+  - latest
+```
+
+refs 会解析为固定的版本 UUID。两个字段可以同时设置；都设为 `[]` 时不关联任何版本。
+
+## 添加行 {#add-rows}
+
+创建 `rows.yaml`，填写各列所需的值：
+
+```yaml
+rows:
+  - metadata:
+      agent: Example agent
+    metrics:
+      reward: 0.85
+```
+
+然后添加这些行：
+
+```bash
+harbor hub leaderboard row create "<leaderboard>" --config rows.yaml
+```
+
+### 行文件 Schema {#row-file-schema}
+
+传给 `row create --config` 或 `create --rows` 的文件具有以下结构：
+
+<ParamField body="rows" type="object[]" required>
+新增 1 到 500 行。请求中的各行 Trial ID 必须唯一。
+<Expandable title="行字段">
+  <ParamField body="metadata" type="object" default="{}">
+   符合排行榜 `metadata_schema` 的值。
+  </ParamField>
+  <ParamField body="metrics" type="object" default="{}">
+   符合排行榜 `metrics_schema` 的值。
+  </ParamField>
+  <ParamField body="status" type="string" default="display">
+   `display` 表示显示该行，`hide` 表示隐藏该行。
+  </ParamField>
+  <ParamField body="trial_ids" type="string (UUID)[]" default="[]">
+   与该行关联的 Trial。关联 Trial 不会自动计算元数据或指标。
+  </ParamField>
+</Expandable>
+</ParamField>
+
+若要同时创建排行榜及其行数据，请将单独的行文件传给 `create`：
+
+```bash
+harbor hub leaderboard create --config leaderboard.yaml --rows rows.yaml
+```
+
+## 编辑排行榜 {#edit-a-leaderboard}
+
+可直接更改标题、描述或可见性：
+
+```bash
+harbor hub leaderboard update "<leaderboard>" \
+  --title "Updated leaderboard" --visibility public
+```
+
+使用 `--description` 更改描述，使用 `--visibility private` 将排行榜设为私有。若要替换数据集版本关联，请重复传入 `--dataset-version-ref` 或 `--dataset-version-id`。省略这些字段则保留现有关联。
+
+若要更改列、Schema 或排序规则，请导出定义文件、编辑，然后应用：
+
+```bash
+harbor hub leaderboard export "<leaderboard>" --output leaderboard.yaml
+# Edit leaderboard.yaml.
+harbor hub leaderboard update "<leaderboard>" --config leaderboard.yaml
+```
+
+命令行标志会覆盖文件中的对应值。通过 `update` 不能更改 Package 和排行榜名称。
+
+## 编辑行 {#edit-rows}
+
+列出行以查找其 ID，然后查看或编辑某一行：
+
+```bash
+harbor hub leaderboard row list "<leaderboard>"
+harbor hub leaderboard row show "<row-id>"
+harbor hub leaderboard row export "<row-id>" --output row.yaml
+# Edit row.yaml.
+harbor hub leaderboard row update "<row-id>" --config row.yaml
+```
+
+更新行会修改 `metadata`、`metrics` 或 `status`。若要隐藏、恢复或永久删除行：
+
+```bash
+harbor hub leaderboard row update "<row-id>" --status hide
+harbor hub leaderboard row update "<row-id>" --status display
+harbor hub leaderboard row delete "<row-id>" "<another-row-id>" --yes
+```
+
+删除行也会删除其 Trial 链接。省略 `--yes` 可交互确认。CLI（命令行界面） 不提供删除整个排行榜的命令。
+
+### 批量编辑 {#batch-edits}
+
+导出所有可见行，编辑后再应用文件：
+
+```bash
+harbor hub leaderboard row export "<leaderboard>" --all --output rows.yaml
+# Edit rows.yaml.
+harbor hub leaderboard update "<leaderboard>" --rows rows.yaml
+```
+
+如果 Schema 变更要求同步修改行，请同时应用两个文件，以便作为一个事务一同成功或失败：
+
+```bash
+harbor hub leaderboard update "<leaderboard>" \
+  --config leaderboard.yaml --rows rows.yaml --dry-run
+harbor hub leaderboard update "<leaderboard>" \
+  --config leaderboard.yaml --rows rows.yaml
+```
+
+编辑前先导出两个文件。文件中的时间戳可避免覆盖较新的更改。`--dry-run` 要求同时提供定义变更和行更新。
+
+## 关联 Trial {#link-trials}
+
+Trial 链接记录支持某行结果的运行。`set` 会替换所有链接；`add` 和 `remove` 只会更改指定链接。
+
+```bash
+harbor hub leaderboard row trial list "<row-id>"
+harbor hub leaderboard row trial set "<row-id>" --trial-id "<trial-id>"
+harbor hub leaderboard row trial add "<row-id>" --trial-id "<trial-id>"
+harbor hub leaderboard row trial remove "<row-id>" --trial-id "<trial-id>"
+harbor hub leaderboard row trial set "<row-id>" --clear
+```
+
+多个 Trial 可重复传入 `--trial-id`。也可以从包含非空 `trial_ids` 列表的 YAML（配置数据格式） 或 JSON（结构化数据格式） 文件替换关联：
+
+```bash
+harbor hub leaderboard row trial set "<row-id>" --trial-ids-file trials.yaml
+```
+
+单独使用文件选项；使用 `--clear` 可移除所有链接。
+
+## 文件和脚本 {#files-and-scripting}
+
+配置文件接受 YAML 或 JSON。导出文件必须使用 `.yaml`、`.yml` 或 `.json` 扩展名；`init` 也接受 `--format json`。使用 `--force` 可覆盖现有输出文件。
+
+读取和修改命令都支持 `--json`。使用 `list --quiet` 获取排行榜 slug，使用 `row list --quiet` 获取行 ID，使用 `row trial list --quiet` 获取 Trial ID。
+
+行和 Trial 列表支持 `--limit`（默认值为 50，最大值为 1,000）和 `--page`（从第 1 页开始）。JSON 输出只包含一页。安静模式或管道输出会返回所有页面，除非指定 `--page`；`--no-headers` 会移除管道表格的表头。
+
+```bash
+harbor hub leaderboard row list "<leaderboard>" --page 2 --limit 100 --json
+harbor hub leaderboard row trial list "<row-id>" --quiet
+```
+
+## 在你的网站上显示排行榜 {#display-a-leaderboard-on-your-own-website}
+
+无需身份验证即可获取公开排行榜，并在你的网站上显示：
+
+```bash
+curl --fail-with-body -sS \
+  "https://api.harborframework.com/functions/v1/leaderboard-read" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "package": "<org>/<dataset>",
+    "name": "<leaderboard-name>",
+    "page": 1,
+    "page_size": 100
+  }'
+```
+
+响应包含 `leaderboard` 定义、已排序的 `rows` 和 `pagination`。如需获取所有行，请遍历至 `pagination.total_pages`。你也可以使用 `leaderboard_id` 选择排行榜，而不使用 `package` 和 `name`。
+
+对于私有排行榜，请从你的服务器进行身份验证；切勿将 API（应用程序接口） 密钥放入浏览器代码中。
+
+[terminal-bench-2-1](https://github.com/harbor-framework/terminal-bench-2-1) 提供了一个流程示例；[tbench.ai](https://www.tbench.ai/) 展示了使用 Hub 数据支持的自定义可视化。Trial 和版本化数据集链接便于读者审计结果并复现评测。

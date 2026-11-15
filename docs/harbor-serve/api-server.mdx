@@ -1,0 +1,328 @@
+---
+title: "API（应用程序接口） 服务器"
+description: "启动 Harbor（智能体评测框架） 服务器，并通过 HTTP（超文本传输协议）、CLI（命令行界面）、Python（编程语言） SDK（软件开发工具包） 或 MCP（模型上下文协议） 连接。"
+---
+
+`harbor serve` 用于运行 Job（任务运行集合）并管理 Sandbox（沙箱）。客户端连接到同一台服务器并查看相同的 Job；即使客户端断开连接，执行也会继续。
+
+## 启动服务器 {#start-the-server}
+
+启动 Docker（容器平台） 后，运行服务器：
+
+```bash
+harbor serve
+```
+
+本地示例中请勿设置 `HARBOR_API_KEY`。以下示例使用公开的 [hello-world Task（任务）](https://hub.harborframework.com/tasks/hello-world/hello-world)和 **oracle Agent（智能体）**，后者会运行参考解答。无需 Harbor Hub（任务与结果共享平台） 账户或模型 API 密钥。
+
+<Accordion title="改用 Daytona，而非 Docker">
+  在**服务器**上配置 Sandbox 提供方，然后在 Job 配置中使用 `"environment": {"type": "daytona"}`，或在 CLI 中使用 `--env daytona`。
+
+  ```bash
+  uv pip install "harbor[daytona]"
+  export DAYTONA_API_KEY="your-daytona-key"
+  harbor serve
+  ```
+</Accordion>
+
+## 选择客户端 {#choose-a-client}
+
+服务器运行后，你可以通过以下 **四种方式**与其交互：
+
+1. **HTTP / cURL**
+2. 使用 `--server` 的 **Harbor CLI**
+3. **Python SDK**（`Harbor` / `AsyncHarbor`）
+4. **MCP**
+
+选择以下示例之一提交 Job：
+
+<Tabs>
+  <Tab title="HTTP / cURL">
+    打开 [提交 Job](/api-sdk/jobs/submit-job)，选择 **Local server**，将 Bearer 字段留空，然后点击预填示例上的 **Send**。也可以运行：
+
+    ```bash
+    curl http://127.0.0.1:8390/jobs/submit \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "config": {
+          "tasks": [{"name": "hello-world/hello-world"}],
+          "agents": [{"name": "oracle"}],
+          "environment": {"type": "docker"}
+        }
+      }'
+    ```
+
+    <Note>
+      该交互环境会从浏览器发送真实请求。如果出现提示，请允许访问本地网络。如果请求被拦截，请使用 cURL 或打开 `http://127.0.0.1:8390/docs`。
+    </Note>
+  </Tab>
+  <Tab title="Harbor CLI">
+    CLI 会将 Job 配置提交到 `POST /jobs/submit`。`--watch` 会持续显示进度：
+
+    ```bash
+    harbor run --server http://127.0.0.1:8390 \
+      --task hello-world/hello-world \
+      --agent oracle --env docker --watch
+    ```
+
+    如需提交现有配置，请使用 `harbor run --server http://127.0.0.1:8390 --config job.json --watch`。
+  </Tab>
+  <Tab title="Python SDK">
+    `Harbor()` 默认连接到 `http://127.0.0.1:8390`，并在设置时读取 `HARBOR_API_KEY`。使用 `python submit_job.py` 运行以下代码：
+
+    ```python submit_job.py
+    from harbor import Harbor
+
+    client = Harbor()
+    job = client.jobs.submit(config={
+        "tasks": [{"name": "hello-world/hello-world"}],
+        "agents": [{"name": "oracle"}],
+        "environment": {"type": "docker"},
+    })
+    job_id = job.job_id
+    print(job_id)
+    print(client.jobs.get(job_id))
+    print(client.rollouts.list(job_ids=[job_id]))
+    client.close()
+    ```
+
+    `config` 可以是字典或 `JobConfig`；响应为类型化模型。设置 `base_url` 可连接远程服务器。`AsyncHarbor` 提供相同方法，调用时需要使用 `await`。
+
+    在任意[端点页面](/api-sdk/jobs/submit-job)中选择 **Python**，即可查看对应的 SDK 示例。
+  </Tab>
+  <Tab title="MCP">
+    Harbor 在 `http://127.0.0.1:8390/mcp` 提供 MCP 服务。本地示例无需身份验证。
+
+    <Accordion title="永久配置 MCP">
+      <CodeGroup>
+        ```bash Claude Code
+        claude mcp add --transport http --scope user harbor http://127.0.0.1:8390/mcp
+        ```
+
+        ```bash Codex
+        codex mcp add harbor --url http://127.0.0.1:8390/mcp
+        ```
+
+        ```json Cursor
+        {
+          "mcpServers": {
+            "harbor": {
+              "url": "http://127.0.0.1:8390/mcp"
+            }
+          }
+        }
+        ```
+      </CodeGroup>
+
+      对于 Cursor（AI 编程工具），请将条目添加到 `~/.cursor/mcp.json`。其他客户端也可以通过 Streamable HTTP 使用同一个 URL。
+    </Accordion>
+
+    **每次对话单独使用：**如果 Agent 配有 HTTP 工具，可以直接使用下方提示词与 MCP 通信；否则请先完成上方配置。
+
+    > 使用位于 http://127.0.0.1:8390/mcp 的 Harbor MCP 服务器，在 Docker 上通过 oracle 运行 hello-world/hello-world。显示 Job ID、Job 和 rollout。
+  </Tab>
+</Tabs>
+
+服务器会从 Hub 下载 Task 并返回 `job_id`。对于本地 Task，请用 `path` 代替 `name`；路径指向**服务器的文件系统**。
+
+<Accordion title="使用 OpenAI API 密钥运行 Codex">
+  保持服务器运行。**为每个 Job 单独提供 OpenAI（模型服务提供商） 密钥**：
+
+  <Tabs>
+    <Tab title="HTTP / cURL">
+      ```bash
+      curl http://127.0.0.1:8390/jobs/submit \
+        -H 'Content-Type: application/json' \
+        -d '{
+          "config": {
+            "tasks": [{"name": "hello-world/hello-world"}],
+            "agents": [{
+              "name": "codex",
+              "model_name": "openai/gpt-6.1-sol",
+              "env": {"OPENAI_API_KEY": "your-openai-key"}
+            }],
+            "environment": {"type": "docker"}
+          }
+        }'
+      ```
+    </Tab>
+    <Tab title="Harbor CLI">
+      ```bash
+      harbor run --server http://127.0.0.1:8390 \
+        --task hello-world/hello-world \
+        --agent codex --model openai/gpt-6.1-sol \
+        --agent-env OPENAI_API_KEY=your-openai-key \
+        --env docker --watch
+      ```
+    </Tab>
+    <Tab title="Python SDK">
+      ```python submit_job.py
+      from harbor import Harbor
+
+      client = Harbor()
+      job = client.jobs.submit(config={
+          "tasks": [{"name": "hello-world/hello-world"}],
+          "agents": [{
+              "name": "codex",
+              "model_name": "openai/gpt-6.1-sol",
+              "env": {"OPENAI_API_KEY": "your-openai-key"},
+          }],
+          "environment": {"type": "docker"},
+      })
+      job_id = job.job_id
+      print(job_id)
+      print(client.jobs.get(job_id))
+      print(client.rollouts.list(job_ids=[job_id]))
+      client.close()
+      ```
+    </Tab>
+    <Tab title="MCP">
+      > 使用位于 http://127.0.0.1:8390/mcp 的 Harbor MCP 服务器，在 Docker 上通过 Codex（OpenAI 编程智能体）（openai/gpt-6.1-sol）运行 hello-world/hello-world，并在 Agent 环境中设置 OPENAI_API_KEY=your-openai-key。显示 Job ID、Job 和 rollout。
+    </Tab>
+  </Tabs>
+
+  将 `your-openai-key` 替换为你的密钥。这会调用真实的 OpenAI API；无需重启服务器。
+</Accordion>
+
+<Accordion title="在 Daytona 上使用 OpenAI API 密钥运行 Codex">
+  使用 **Daytona（云沙箱平台） 凭据**重启服务器：
+
+  ```bash
+  uv pip install "harbor[daytona]"
+  export DAYTONA_API_KEY="your-daytona-key"
+  harbor serve
+  ```
+
+  使用所选客户端**为每个 Job 提交 OpenAI 密钥**：
+
+  <Tabs>
+    <Tab title="HTTP / cURL">
+      ```bash
+      curl http://127.0.0.1:8390/jobs/submit \
+        -H 'Content-Type: application/json' \
+        -d '{
+          "config": {
+            "tasks": [{"name": "hello-world/hello-world"}],
+            "agents": [{
+              "name": "codex",
+              "model_name": "openai/gpt-6.1-sol",
+              "env": {"OPENAI_API_KEY": "your-openai-key"}
+            }],
+            "environment": {"type": "daytona"}
+          }
+        }'
+      ```
+    </Tab>
+    <Tab title="Harbor CLI">
+      ```bash
+      harbor run --server http://127.0.0.1:8390 \
+        --task hello-world/hello-world \
+        --agent codex --model openai/gpt-6.1-sol \
+        --agent-env OPENAI_API_KEY=your-openai-key \
+        --env daytona --watch
+      ```
+    </Tab>
+    <Tab title="Python SDK">
+      ```python submit_job.py
+      from harbor import Harbor
+
+      client = Harbor()
+      job = client.jobs.submit(config={
+          "tasks": [{"name": "hello-world/hello-world"}],
+          "agents": [{
+              "name": "codex",
+              "model_name": "openai/gpt-6.1-sol",
+              "env": {"OPENAI_API_KEY": "your-openai-key"},
+          }],
+          "environment": {"type": "daytona"},
+      })
+      job_id = job.job_id
+      print(job_id)
+      print(client.jobs.get(job_id))
+      print(client.rollouts.list(job_ids=[job_id]))
+      client.close()
+      ```
+    </Tab>
+    <Tab title="MCP">
+      > 使用位于 http://127.0.0.1:8390/mcp 的 Harbor MCP 服务器，在 Daytona 上通过 Codex（openai/gpt-6.1-sol）运行 hello-world/hello-world，并在 Agent 环境中设置 OPENAI_API_KEY=your-openai-key。显示 Job ID、Job 和 rollout。
+    </Tab>
+  </Tabs>
+</Accordion>
+
+## 查看进度和结果 {#check-progress-and-results}
+
+**建议使用 Harbor viewer（查看器）**监控实时进度并浏览结果与工件：
+
+```bash
+harbor view --server http://127.0.0.1:8390
+```
+
+<Frame caption="Rollout 生命周期。">
+  <img
+    src="/images/rollout-lifecycle.png"
+    alt="Rollout 会依次从 queued 进入 running，最后到 finished。Queued 状态的 rollout 可以暂停或取消；running 状态的 rollout 可以取消，也可能进入 cancelling。重试会创建新的 rollout。"
+  />
+</Frame>
+
+<Accordion title="通过 API 查看">
+  使用返回的 ID，通过 [获取 Job](/api-sdk/jobs/get-job) 和[列出 rollout](/api-sdk/rollouts/list-rollouts)查询：
+
+  ```bash
+  JOB_ID="paste-job-id"
+  curl "http://127.0.0.1:8390/jobs/$JOB_ID"
+  curl "http://127.0.0.1:8390/rollouts?job_ids=$JOB_ID"
+  ```
+
+  轮询直到状态变为 `finished` 或 `cancelled`。`finished` 表示执行已结束；请检查 rollout 的 `error_type` 和 `rewards` 了解结果。
+
+  [获取 rollout](/api-sdk/rollouts/get-rollout)会返回完整结果和工件 URI 映射。将文件 URI 传给[下载](/api-sdk/files/download)，或使用 `client.download(uri, destination)` 将文件保存到本地。
+</Accordion>
+
+<Accordion title="请求行为">
+  - 提交 `JobConfig`；服务器会先解析配置，再接受工作。
+  - 设置 `dry_run: true` 可返回 `{ "n_trials": 2 }`，且不会创建 Job 或占用幂等键。在 SDK 中使用 `client.jobs.submit(config, dry_run=True).n_trials`；在 CLI 中添加 `--dry-run`。解析过程可能会下载 Task。
+  - 列表接口会返回 `items`、`total` 和 `next_page_token`。使用相同的筛选条件和排序方式，将该令牌作为 `page_token` 传入；令牌为空表示遍历结束。`page_size` 默认值为 50（传入 0 时也使用 50），上限为 100。详情接口会返回完整记录。
+  - 操作请求在 URL 中指定单个 Job 或 rollout ID，例如 `POST /jobs/{job_id}/pause`。
+  - 暂停操作会影响排队中的 rollout。取消操作会停止排队中和运行中的 rollout；设置 `force: false` 会让运行中的 rollout 完成。重试会在同一 Job 中创建新的 rollout ID。
+  - 提交和重试请求可选用 `Idempotency-Key`。SDK 和 CLI 每次调用都会生成一个，试运行除外；如果响应丢失，可在 SDK 中提供 `idempotency_key` 以便重用。重复请求会返回 `409`，并附上原 Job ID 或重试生成的 rollout ID。SDK 不会自动重试请求。
+  - HTTP 错误会返回 `{"error": {"code": "...", "message": "..."}}`；SDK 会抛出 `harbor.client.APIError`。`Harbor-API-Version` 为可选项，SDK 会自动提供该值。
+</Accordion>
+
+## 服务器设置 {#server-settings}
+
+| 设置 | 行为 |
+| --- | --- |
+| `--host`, `--port` | 默认值：`127.0.0.1:8390`。 |
+| `--data-dir` | 默认值为 `.harbor`；用于持久保存 Job、结果和工件。每个目录只能运行一个服务器进程。 |
+| `--max-concurrent` | 默认值为 `8092`，表示所有 Job 中同时运行的 rollout 数量上限。每个 Job 还可以设置 `n_concurrent_trials`。 |
+| `HARBOR_API_KEY` | 本地运行时可选；绑定到非本地地址或使用中继时必填。设置后，客户端会发送 `Authorization: Bearer <key>`。CLI 和 SDK 会从其运行环境中读取该密钥。 |
+
+远程部署请使用 HTTPS（加密的超文本传输协议）。将 `DAYTONA_API_KEY` 等 Sandbox 提供方凭据配置在服务器上；通过 `agents[].env` 为每个 Job 提交模型凭据。`environment.env` 设置的是 **Sandbox 内部**的变量，不是提供方凭据。
+
+**API & SDK** 标签页包含[端点参考](/api-sdk/jobs/submit-job)，服务器还会在 `/openapi.json` 提供 OpenAPI Schema。
+
+## 查看 Agent 和 Sandbox {#discover-agents-and-sandboxes}
+
+列出服务器内置的提供方，并查看其配置选项：
+
+```bash
+curl http://127.0.0.1:8390/agents
+curl http://127.0.0.1:8390/agents/codex/options
+curl http://127.0.0.1:8390/sandboxes
+curl http://127.0.0.1:8390/sandboxes/docker/options
+```
+
+也可以使用 Python SDK：
+
+```python
+from harbor import Harbor
+
+with Harbor() as client:
+    print(client.agents.list().agents)
+    print(client.agents.options("codex"))
+    print(client.sandboxes.list().sandboxes)
+    print(client.sandboxes.options("docker"))
+```
+
+选项以 JSON（结构化数据格式） Schema 格式返回。详情请参阅 [Agent 列表](/api-sdk/agents/list-agents)和 [Sandbox 列表](/api-sdk/sandboxes/list-sandboxes)。
+以及 [Sandbox 列表](/api-sdk/sandboxes/list-sandboxes)参考页面了解详情。

@@ -1,0 +1,69 @@
+---
+title: "分享"
+description: "分享 Task（任务）、数据集和 Job（任务运行集合）。"
+---
+
+Harbor Hub（任务与结果共享平台） 可让你与其他用户分享 Task（任务）、数据集和 Job（任务运行集合）。
+
+## 分享 Task 和数据集 {#sharing-tasks-and-datasets}
+
+Task 和数据集可以公开分享，也可以私下分享。
+
+发布新 Task 或数据集时，使用 `--public` 或 `--private` 设置可见性：
+
+```bash
+harbor publish "<task-path>" --public
+harbor publish "<dataset-path>" --public
+harbor publish "<task-or-dataset-path>" --private
+```
+
+新 Package（软件包）默认设为私有。这些标志只设置新 Package 的可见性；发布现有 Package 的新版本时，会保留其原有可见性。使用下方的 `visibility` 命令更改可见性。
+
+如需将已发布的 Task 或数据集私下分享给某个组织，请运行：
+
+```bash
+harbor task share "<owner-org>/<task-name>" --org "<recipient-org>"
+harbor dataset share "<owner-org>/<dataset-name>" --org "<recipient-org>"
+```
+
+如需公开已发布的 Task 或数据集，请运行：
+
+```bash
+harbor task visibility "<org>/<task-name>" --public
+harbor dataset visibility "<org>/<dataset-name>" --public
+```
+
+<Warning>
+分享数据集会公开其中所有 Task，包括此前和未来版本引用的 Task。
+</Warning>
+
+## 分享 Job {#sharing-jobs}
+
+你可以在上传 Job 时分享，也可以之后再分享。
+
+```bash
+harbor run ... --upload --share "<org>"
+harbor upload "<job-path>" --share "<org>"
+harbor job share "<job-id>" --org "<org>"
+```
+
+分享 Job 会自动向获分享权限的一方开放其中所有 Trial（单次运行） 和轨迹。
+
+如需公开 Job，请运行：
+
+```bash
+harbor run ... --upload --public
+harbor upload "<job-path>" --public
+```
+
+对于已上传的 Job，运行 `harbor upload "<job-path>" --public` 会根据本地 Job 目录更新其可见性。使用 `--private` 可重新设为私有。
+
+## 查看分享状态 {#inspecting-share-status}
+
+你可以使用以下命令检查 Task 和数据集的访问权限，以及 Job 的分享对象：
+
+```bash
+harbor task access "<org>/<task-name>"
+harbor dataset access "<org>/<dataset-name>"
+harbor hub job shares "<job-id>"
+```
