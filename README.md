@@ -34,3 +34,5 @@ npm run build
 ## 发布前核验
 
 在本地模拟 GitHub Pages 的 `/harbor-zh/` 子路径后，91 篇中文页面全部返回 HTTP 200 并显示中文正文，浏览器未捕获页面 JavaScript 异常。静态产物中的 16,746 个本地资源和页面链接均能找到对应文件。已实际测试标签页切换、折叠内容展开、代码复制、进入 Cookbook，以及 390 像素手机视口下无横向溢出。
+
+云端构建也已通过：[首次 Actions 运行](https://github.com/xingshuozhu1998/harbor-zh/actions/runs/43680590010)的 build 任务完成了依赖安装、静态导出与产物上传。该次 deploy 任务因当时尚未启用 Pages 而失败；启用 Pages 后由后续提交重新触发发布。
